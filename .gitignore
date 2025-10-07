@@ -1,0 +1,23 @@
+# Entornos virtuales
+.venv/
+venv/
+backend/venv/
+
+# Archivos de Python/Django
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.log
+
+# Archivos de entorno
+.env
+.env.*
+
+# Archivos estáticos y de medios
+staticfiles/
+media/
+
+# Node y frontend (si aplica)
+node_modules/
+dist/
+
