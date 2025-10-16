@@ -1,3 +1,6 @@
+# Ignorar dependencias de Node
+/frontend/node_modules/
+
 # Entornos virtuales
 .venv/
 venv/
@@ -8,6 +11,7 @@ __pycache__/
 *.py[cod]
 *.sqlite3
 *.log
+*.pyc
 
 # Archivos de entorno
 .env
