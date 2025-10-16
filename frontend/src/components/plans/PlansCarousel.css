@@ -1,0 +1,125 @@
+/* =========================================================
+   PlansCarousel.css — versión estándar con flechas separadas
+   ========================================================= */
+
+.plans-section {
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: var(--space-8) 0 var(--space-6);
+  position: relative;
+}
+
+.plans-head {
+  margin-bottom: var(--space-6);
+  display: grid;
+  gap: 0.4rem;
+}
+
+.plans-title {
+  margin: 0;
+  font-weight: 800;
+  font-size: clamp(1.35rem, 1.1rem + 1.2vw, 1.8rem);
+}
+
+.plans-subtitle {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.98rem;
+}
+
+/* Línea decorativa */
+.plans-head::after {
+  content: "";
+  height: 2px;
+  width: 72px;
+  margin-top: 0.6rem;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-light));
+  border-radius: 2px;
+}
+
+/* Swiper base */
+.plans-swiper {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 3.5rem 4rem; /* más espacio lateral */
+  position: relative;
+}
+
+/* Flechas */
+.swiper-button-prev,
+.swiper-button-next {
+  color: var(--color-text);
+  transition: all var(--transition-fast);
+  width: 38px;
+  height: 38px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.swiper-button-prev:hover,
+.swiper-button-next:hover {
+  color: var(--color-primary);
+  transform: scale(1.1);
+}
+
+/* Separación simétrica (sin tocar las cards) */
+.swiper-button-prev {
+  left: -2rem;  /* más aire hacia fuera */
+}
+.swiper-button-next {
+  right: -2rem;
+}
+
+/* Paginación centrada y separada */
+.swiper-pagination {
+  bottom: -5px !important;
+  text-align: center !important;
+}
+
+.swiper-pagination-bullet {
+  background: #ccc;
+  opacity: 1;
+}
+
+.swiper-pagination-bullet-active {
+  background: var(--color-primary);
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 1024px) {
+  .plans-swiper {
+    padding: 0 2.5rem 3rem;
+  }
+
+  .swiper-button-prev {
+    left: -1.5rem;
+  }
+  .swiper-button-next {
+    right: -1.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .plans-swiper {
+    padding: 0 2rem 2.5rem;
+  }
+
+  .swiper-button-prev::after,
+  .swiper-button-next::after {
+    font-size: 18px;
+  }
+
+  .swiper-button-prev,
+  .swiper-button-next {
+    width: 32px;
+    height: 32px;
+  }
+
+  .swiper-button-prev {
+    left: -1rem;
+  }
+  .swiper-button-next {
+    right: -1rem;
+  }
+}

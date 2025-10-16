@@ -1,20 +1,31 @@
-import React, { useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import Router from './router'
-import { getToken } from './auth'
-import { setAuth } from './api'
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Navbar from "./components/ui/Navbar";
+import Footer from "./components/ui/Footer";
 
-export default function App(){
-  useEffect(()=>{ const t = getToken(); if(t) setAuth(t) },[])
+function Home() {
   return (
-    <div style={{fontFamily:'system-ui', background:'#f5f7fa', minHeight:'100vh'}}>
-      <nav style={{background:'#0D47A1', color:'#fff', padding:'10px 16px', display:'flex', gap:16}}>
-        <Link to="/" style={{color:'#fff', textDecoration:'none', fontWeight:700}}>Aseguradora</Link>
-        <Link to="/quote" style={{color:'#fff'}}>Cotizar</Link>
-        <Link to="/login" style={{color:'#fff', marginLeft:'auto'}}>Iniciar sesión</Link>
-        <a href="https://wa.me/5492210000000" style={{color:'#fff'}}>WhatsApp</a>
-      </nav>
-      <Router/>
-    </div>
-  )
+    <section className="section container">
+      <h1>Bienvenido a San Cayetano</h1>
+      <p>Elegí el plan ideal para tu vehículo.</p>
+    </section>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Navbar />
+      <main id="main">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/quote" element={<div className="section container"><h1>Cotizador</h1></div>} />
+          <Route path="/plans" element={<div className="section container"><h1>Planes</h1></div>} />
+          <Route path="/how-it-works" element={<div className="section container"><h1>Cómo funciona</h1></div>} />
+          <Route path="/dashboard" element={<div className="section container"><h1>Mi cuenta</h1></div>} />
+          <Route path="/login" element={<div className="section container"><h1>Ingresar</h1></div>} />
+        </Routes>
+      </main>
+      <Footer />
+    </BrowserRouter>
+  );
 }

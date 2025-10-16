@@ -1,0 +1,221 @@
+/* =========================================================
+   NAVBAR — Negro, fijo, con menú lateral derecho
+   ========================================================= */
+
+/* Header fijo */
+.site-header {
+  background: var(--color-primary);
+  color: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* Contenedor principal */
+.nav {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 72px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--space-4);
+}
+
+/* Marca */
+.nav__logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+}
+.nav__brand-img {
+  height: 36px;
+  width: auto;
+  display: block;
+}
+
+/* Botón hamburguesa */
+.nav__toggle {
+  position: absolute;
+  right: var(--space-4);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  background: transparent;
+  border: 1px solid #222;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.nav__toggle:hover {
+  background: #0a0a0a;
+  border-color: #333;
+}
+
+/* Contenedor menú */
+.nav__menu {
+  margin-left: auto;
+  position: relative;
+}
+
+/* Lista base */
+.nav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2.4vw, 28px);
+  white-space: nowrap;
+}
+
+/* Links */
+.nav__link {
+  display: inline-block;
+  color: #fff;
+  font-size: 0.95rem;
+  text-decoration: none;
+  padding: 6px 4px;
+  transition: color 0.2s ease;
+}
+.nav__link:hover,
+.nav__link.is-active {
+  color: #e5e5e5;
+}
+
+/* CTA "Ingresar" */
+.nav__cta {
+  margin-left: clamp(8px, 1.2vw, 16px);
+}
+
+/* =========================
+   MOBILE — Drawer desde la derecha
+   ========================= */
+@media (max-width: 991px) {
+  .nav__toggle {
+    display: inline-flex;
+  }
+
+  /* Drawer oculto */
+  .nav__list {
+    flex-direction: column;
+    gap: var(--space-4);
+    position: fixed;
+    top: 72px;
+    right: 0;
+    left: auto;
+    width: min(78vw, 360px);
+    height: calc(100dvh - 72px);
+    padding: var(--space-5);
+    background: #000;
+    border-left: 1px solid #191919;
+    z-index: 100;
+    transform: translateX(100%);
+    transition: transform 0.25s ease-out;
+  }
+
+  /* Drawer abierto */
+  .nav__list.is-open {
+    transform: translateX(0);
+  }
+
+  .nav__link {
+    font-size: 1.05rem;
+    width: 100%;
+    text-align: left;
+  }
+
+  .nav__cta {
+    margin-top: var(--space-4);
+  }
+
+  /* Backdrop */
+  .nav__menu::before {
+    content: "";
+    position: fixed;
+    inset: 72px 0 0 0;
+    background: rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 99;
+  }
+
+  .nav__menu:has(.nav__list.is-open)::before {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .nav__brand-img {
+    height: 30px;
+  }
+}
+
+/* =========================
+   DESKTOP
+   ========================= */
+@media (min-width: 992px) {
+  .nav__toggle {
+    display: none;
+  }
+
+  .nav__menu {
+    margin-left: auto;
+  }
+
+  .nav__list {
+    position: static;
+    display: flex !important;
+    flex-direction: row;
+    gap: clamp(12px, 2.4vw, 28px);
+    background: transparent;
+    border: 0;
+    padding: 0;
+    height: auto;
+    transform: none;
+  }
+}
+
+/* Animación */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Skip link accesible */
+.skip-link {
+  position: absolute !important;
+  clip: rect(1px, 1px, 1px, 1px);
+  clip-path: inset(50%);
+  height: 1px;
+  width: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.skip-link:focus {
+  clip: auto;
+  clip-path: none;
+  height: auto;
+  width: auto;
+  left: var(--space-4);
+  top: var(--space-4);
+  background: #fff;
+  color: #000;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  z-index: 1000;
+}

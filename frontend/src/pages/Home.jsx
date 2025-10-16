@@ -1,15 +1,17 @@
-import React from "react";
 import Hero from "../components/Hero";
+import PlansCarousel from "../components/plans/PlansCarousel";
+import HowItWorks from "../components/home/HowItWorks";
 
 export default function Home() {
   return (
     <>
-      <Hero
-        companyName="San Cayetano"
-        quoteHref="/quote"
-        whatsapp="+54 9 221 000 0000"
+      {/* FULL-BLEED: no lo envuelvas en container/section */}
+      <Hero />
+      <PlansCarousel
+        title="Planes de cobertura"
+        subtitle="Elegí el plan que mejor se adapte a tu vehículo y forma de uso."
       />
-      {/* …resto del contenido de Home… */}
+      <HowItWorks />
     </>
   );
 }

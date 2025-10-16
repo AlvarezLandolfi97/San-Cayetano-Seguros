@@ -1,0 +1,147 @@
+/* =========================================================
+   PlanCard.css — versión orgánica y elegante
+   ========================================================= */
+
+.plan-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  margin-top: 20px;
+  padding: 2rem 1.8rem;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  min-height: 420px; /* Asegura uniformidad visual */
+}
+
+.plan-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 16px rgba(10, 42, 107, 0.15);
+  border-color: var(--color-primary-light);
+}
+
+/* --- HEADER --- */
+.plan-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.plan-card__title {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1.2rem;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+}
+
+.plan-card__tagline {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+}
+
+/* Badge (etiqueta) */
+.plan-card__badge {
+  align-self: flex-start;
+  background: rgba(10, 42, 107, 0.05);
+  color: var(--color-primary-dark);
+  border: 1px solid rgba(10, 42, 107, 0.1);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-top: 0.4rem;
+  text-transform: capitalize;
+}
+
+/* --- FEATURES --- */
+.plan-card__list {
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  flex-grow: 1;
+}
+
+.plan-card__item {
+  font-size: 0.95rem;
+  color: #1e1e1e;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  line-height: 1.4;
+}
+
+.plan-card__item .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  flex-shrink: 0;
+}
+
+/* --- FOOTER --- */
+.plan-card__footer {
+  margin-top: auto;
+}
+
+.plan-card__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+/* Botones con efecto orgánico */
+.plan-card .btn {
+  flex: 1;
+  border-radius: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.plan-card .btn--primary {
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 4px 10px rgba(10, 42, 107, 0.25);
+}
+.plan-card .btn--primary:hover {
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+  transform: translateY(-1px);
+}
+
+.plan-card .btn--secondary {
+  background: #fff;
+  color: var(--color-text);
+  border: 1px solid #000;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+.plan-card .btn--secondary:hover {
+  background: #000;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* --- Responsivo --- */
+@media (max-width: 768px) {
+  .plan-card {
+    padding: 1.6rem;
+    min-height: 380px;
+  }
+
+  .plan-card__actions {
+    flex-direction: column;
+  }
+
+  .plan-card .btn {
+    width: 100%;
+  }
+}
