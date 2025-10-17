@@ -3,17 +3,32 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
+from django.shortcuts import redirect
 
+
+# === Healthcheck ===
+def healthcheck(request):
+    """
+    Endpoint simple para verificar el estado del servidor.
+    Útil para monitoreo o comprobaciones automáticas.
+    """
+    return JsonResponse({"status": "ok"}, status=200)
+
+
+# === URL patterns principales ===
 urlpatterns = [
-    # Admin
-    path("admin/", admin.site.urls),
+    # Admin — configurable por .env
+    path(settings.ADMIN_URL, admin.site.urls),
 
-    # Healthcheck simple (para monitoreo / uptime)
-    path("healthz", lambda r: JsonResponse({"status": "ok"}, status=200)),
+    # (Opcional) redirect desde /admin/ → ADMIN_URL
+    path("admin/", lambda r: redirect("/" + settings.ADMIN_URL, permanent=True)),
+
+    # Healthcheck
+    path("healthz/", healthcheck, name="healthcheck"),
 
     # API
     path("api/accounts/", include("accounts.urls")),
-    path("api/vehicles/", include("vehicles.urls")),      # asegurate de tener 'vehicles' en INSTALLED_APPS
+    path("api/vehicles/", include("vehicles.urls")),
     path("api/products/", include("products.urls")),
     path("api/inspections/", include("inspections.urls")),
     path("api/policies/", include("policies.urls")),
@@ -21,7 +36,34 @@ urlpatterns = [
     path("api/quotes/", include("quotes.urls")),
 ]
 
-# En desarrollo, servir archivos estáticos y de media
+
+# === Archivos estáticos y media ===
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+
+# === Root amigable (en lugar del 404) ===
+urlpatterns += [
+    path(
+        "",
+        lambda r: JsonResponse(
+            {
+                "message": "San Cayetano API 🚗✅",
+                "endpoints": [
+                    "/api/accounts/",
+                    "/api/vehicles/",
+                    "/api/products/",
+                    "/api/inspections/",
+                    "/api/policies/",
+                    "/api/payments/",
+                    "/api/quotes/",
+                    "/healthz/",
+                    f"/{settings.ADMIN_URL}",
+                ],
+            },
+            status=200,
+        ),
+        name="api-root",
+    ),
+]
