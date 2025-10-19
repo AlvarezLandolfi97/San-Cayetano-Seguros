@@ -131,10 +131,18 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
-    "DEFAULT_THROTTLE_CLASSES": [
+
+    # 🚦 Throttling global + por scope
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
         "rest_framework.throttling.ScopedRateThrottle",
-    ],
+    ),
     "DEFAULT_THROTTLE_RATES": {
+        # globales
+        "anon": "200/hour",
+        "user": "1000/hour",
+        # scopes
         "inspections_create": "10/hour",
         "quotes": "60/hour",
     },
@@ -157,7 +165,7 @@ _frontend_origins = os.getenv(
     "http://localhost:5173,http://127.0.0.1:5173"
 ).split(",")
 CORS_ALLOWED_ORIGINS = [o.strip() for o in _frontend_origins if o.strip()]
-CORS_ALLOW_CREDENTIALS = False
+CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 # -------------------
