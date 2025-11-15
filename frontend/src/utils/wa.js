@@ -1,11 +1,14 @@
-// Limpia número a formato E.164
-export function toE164(raw = "") {
-  return String(raw).replace(/[^\d]/g, "");
+export function cleanPhone(p) {
+  if (!p) return "";
+  const raw = String(p).trim().replace(/\s|-/g, "");
+  // si no tiene + y son dígitos, anteponer +
+  if (!raw.startsWith("+") && /^\d+$/.test(raw)) return `+${raw}`;
+  return raw;
 }
 
-// Crea un link de WhatsApp
-export function buildWhatsAppUrl({ to, text }) {
-  const phone = toE164(to);
-  const encoded = encodeURIComponent(text || "");
-  return `https://wa.me/${phone}?text=${encoded}`;
+export function buildWhatsAppLink(destNumber, message) {
+  const phone = cleanPhone(destNumber).replace(/^\+/, ""); // wa.me usa sin '+'
+  const text = encodeURIComponent(message || "");
+  // Si querés usar API oficial de wa (con app o web), podés cambiar wa.me por api.whatsapp.com/send
+  return `https://wa.me/${phone}?text=${text}`;
 }

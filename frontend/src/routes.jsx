@@ -1,96 +1,120 @@
-// frontend/src/routes.jsx
-import { Routes, Route, Navigate } from "react-router-dom";
-import Navbar from "./components/ui/Navbar";
-import Footer from "./components/ui/Footer";
+// src/routes.jsx
+import { Routes, Route, Navigate, Outlet } from "react-router-dom";
+import useAuth from "@/hooks/useAuth";
 
-import Home from "./pages/Home";
-import QuotePage from "./pages/QuotePage";
-import Register from "./pages/Register";
-import ClaimPolicy from "./pages/ClaimPolicy";
-import Login from "./pages/Login";
-import ResetRequest from "./pages/ResetRequest";
-import ResetConfirm from "./pages/ResetConfirm";
-import Logout from "./pages/Logout";
+// Layout UI
+import Navbar from "@/components/ui/Navbar";
+import Footer from "@/components/ui/Footer";
+import AnnouncementBar from "@/components/ui/AnnouncementBar";
 
-import DashboardLayout from "./components/dashboard/DashboardLayout";
-import DashboardHome from "./components/dashboard/DashboardHome";
-import Payments from "./components/dashboard/Payments";
-import Profile from "./components/dashboard/Profile";
+// Páginas públicas
+import Home from "@/pages/Home";
+import Quote from "@/pages/Quote";
+import QuoteShare from "@/pages/QuoteShare";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import Logout from "@/pages/Logout";
+import ResetRequest from "@/pages/ResetRequest";
+import ResetConfirm from "@/pages/ResetConfirm";
 
-import useAuth from "./hooks/useAuth";
+// Pólizas
+import PolicyDetail from "@/pages/PolicyDetail";
+import ClaimPolicy from "@/pages/ClaimPolicy";
 
-/* =========================================================
-   🔒 RUTA PRIVADA
-   ========================================================= */
-function PrivateRoute({ children }) {
-  const { user } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
-  return children;
+// Dashboard usuario
+import UserDashboardLayout from "@/pages/dashboard/UserDashboardLayout";
+import PolicyOverview from "@/pages/dashboard/PolicyOverview";
+import Payments from "@/pages/dashboard/Payments";
+import Profile from "@/pages/dashboard/Profile";
+
+// Admin
+import AdminLayout from "@/pages/admin/AdminLayout";
+import InsuranceTypes from "@/pages/admin/InsuranceTypes";
+import Policies from "@/pages/admin/Policies";
+import Users from "@/pages/admin/Users";
+
+// -------- Guards --------
+function RequireAuth() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  return user ? <Outlet /> : <Navigate to="/login" replace />;
 }
 
-/* =========================================================
-   📦 LAYOUT GENERAL (Navbar + Footer)
-   ========================================================= */
-function Layout({ children }) {
+function AdminGate() {
+  const { user } = useAuth();
+  const isAdmin = !!(user?.is_admin || user?.isAdmin || user?.is_staff);
+  return isAdmin ? <Outlet /> : <Navigate to="/dashboard/seguro" replace />;
+}
+
+function UserGate() {
+  const { user } = useAuth();
+  const isAdmin = !!(user?.is_admin || user?.isAdmin || user?.is_staff);
+  return !isAdmin ? <Outlet /> : <Navigate to="/admin" replace />;
+}
+
+// -------- Página 404 --------
+function NotFound() {
   return (
-    <>
-      <Navbar />
-      <main id="main">{children}</main>
-      <Footer />
-    </>
+    <section className="section container">
+      <h1>404</h1>
+      <p>La página que buscás no existe.</p>
+    </section>
   );
 }
 
-/* =========================================================
-   🚦 RUTAS PRINCIPALES DE LA APP
-   ========================================================= */
+// -------- Rutas principales --------
 export default function AppRoutes() {
   return (
-    <Routes>
-      {/* 🏠 Home */}
-      <Route path="/" element={<Layout><Home /></Layout>} />
+    <>
+      <AnnouncementBar />
+      <Navbar />
+      <main id="main">
+        <Routes>
+          {/* Públicas */}
+          <Route path="/" element={<Home />} />
+          <Route path="/quote" element={<Quote />} />
+          <Route path="/quote/share" element={<QuoteShare />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/logout" element={<Logout />} />
+          <Route path="/reset" element={<ResetRequest />} />
+          <Route path="/reset/confirm" element={<ResetConfirm />} />
 
-      {/* 🚗 Cotizar */}
-      <Route path="/quote" element={<Layout><QuotePage /></Layout>} />
+          {/* Pólizas públicas */}
+          <Route path="/policy/:id" element={<PolicyDetail />} />
+          <Route path="/claim-policy" element={<ClaimPolicy />} />
 
-      {/* 🧾 Reclamo (privado) */}
-      <Route
-        path="/claim"
-        element={
-          <PrivateRoute>
-            <Layout><ClaimPolicy /></Layout>
-          </PrivateRoute>
-        }
-      />
+          {/* ÁREA PRIVADA */}
+          <Route element={<RequireAuth />}>
+            {/* Usuario */}
+            <Route element={<UserGate />}>
+              <Route path="/dashboard" element={<UserDashboardLayout />}>
+                <Route index element={<PolicyOverview />} />
+                <Route path="seguro" element={<PolicyOverview />} />
+                <Route path="pagos" element={<Payments />} />
+                <Route path="perfil" element={<Profile />} />
+              </Route>
+            </Route>
 
-      {/* 👤 Registro / Login / Logout */}
-      <Route path="/register" element={<Layout><Register /></Layout>} />
-      <Route path="/login" element={<Layout><Login /></Layout>} />
-      <Route path="/logout" element={<Logout />} />
+            {/* Admin */}
+            <Route element={<AdminGate />}>
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<InsuranceTypes />} />
+                <Route path="seguros" element={<InsuranceTypes />} />
+                <Route path="polizas" element={<Policies />} />
+                <Route path="usuarios" element={<Users />} />
+              </Route>
+            </Route>
+          </Route>
 
-      {/* 🔑 Recuperación de contraseña */}
-      <Route path="/reset" element={<Layout><ResetRequest /></Layout>} />
-      <Route path="/reset/confirm" element={<Layout><ResetConfirm /></Layout>} />
+          {/* Compat */}
+          <Route path="/home" element={<Navigate to="/" replace />} />
 
-      {/* =========================================================
-          🧭 DASHBOARD PRIVADO (Panel del usuario)
-         ========================================================= */}
-      <Route
-        path="/dashboard"
-        element={
-          <Layout>
-            <DashboardLayout />
-          </Layout>
-        }
-      >
-        {/* Rutas internas del dashboard */}
-        <Route index element={<DashboardHome />} />               {/* Mis Seguros */}
-        <Route path="payments" element={<Payments />} />           {/* Pagos */}
-        <Route path="profile" element={<Profile />} />             {/* Mi perfil */}
-      </Route>
-
-      {/* 🚫 Redirección 404 */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+          {/* 404 */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </main>
+      <Footer />
+    </>
   );
 }

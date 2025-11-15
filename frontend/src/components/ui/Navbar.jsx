@@ -1,10 +1,26 @@
+// src/components/ui/Navbar.jsx
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Link } from "react-router-dom";
+import useAuth from "@/hooks/useAuth";
 import "./navbar.css";
+
+// Normaliza distintas formas de marcar admin
+function isAdminUser(u) {
+  if (!u) return false;
+  const flag = u.is_admin ?? u.isAdmin ?? u.is_staff ?? u.admin ?? u.role;
+  if (typeof flag === "string") {
+    const s = flag.toLowerCase();
+    if (s === "admin") return true;
+    if (["true", "1", "yes", "si"].includes(s)) return true;
+  }
+  if (typeof flag === "number") return flag === 1;
+  if (typeof flag === "boolean") return flag === true;
+  return u.role === "admin";
+}
 
 /**
  * Navbar accesible:
- * - Landmarks: <header> + <nav>
+ * - <header> y <nav> semánticos
  * - "Skip to content" link
  * - Menú móvil con aria-expanded y aria-controls
  * - Cierra con ESC, clic fuera o al navegar
@@ -13,6 +29,10 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
+  const { user, logout } = useAuth();
+
+  const isLoggedIn = !!user;
+  const isAdmin = isAdminUser(user);
 
   // Cerrar con ESC
   useEffect(() => {
@@ -44,7 +64,6 @@ export default function Navbar() {
 
   return (
     <header className="site-header">
-      {/* Skip link */}
       <a href="#main" className="skip-link">
         Saltar al contenido
       </a>
@@ -70,13 +89,7 @@ export default function Navbar() {
           aria-label="Abrir menú"
           onClick={() => setOpen((v) => !v)}
         >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            fill="none"
-          >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
             <path
               d="M3 6h18M3 12h18M3 18h18"
               stroke="currentColor"
@@ -96,31 +109,63 @@ export default function Navbar() {
               if (e.target.tagName === "A") setOpen(false);
             }}
           >
+            {/* Siempre visible: Inicio */}
             <li>
               <NavLink to="/" className={active} end>
                 Inicio
               </NavLink>
             </li>
-            <li>
-              <NavLink to="/plans" className={active}>
-                Planes
-              </NavLink>
-            </li>
-            <li>
-              <NavLink to="/quote" className={active}>
-                Cotizar
-              </NavLink>
-            </li>
-            <li>
-              <NavLink to="/how-it-works" className={active}>
-                Cómo funciona
-              </NavLink>
-            </li>
-            <li className="nav__cta">
-              <NavLink to="/login" className="btn btn--secondary">
-                Ingresar
-              </NavLink>
-            </li>
+
+            {/* Vista ADMIN: solo Admin + Cerrar sesión */}
+            {isLoggedIn && isAdmin ? (
+              <>
+                <li>
+                  <NavLink to="/admin" className={active}>
+                    Admin
+                  </NavLink>
+                </li>
+                <li>
+                  <button onClick={logout} className="btn btn--secondary">
+                    Cerrar sesión
+                  </button>
+                </li>
+              </>
+            ) : (
+              // Vista NO ADMIN
+              <>
+                <li>
+                  <NavLink to="/quote" className={active}>
+                    Cotizar
+                  </NavLink>
+                </li>
+
+                {isLoggedIn ? (
+                  <>
+                    <li>
+                      <NavLink to="/claim-policy" className={active}>
+                        Asociar póliza
+                      </NavLink>
+                    </li>
+                    <li>
+                      <NavLink to="/dashboard/seguro" className={active}>
+                        Mi cuenta
+                      </NavLink>
+                    </li>
+                    <li>
+                      <button onClick={logout} className="btn btn--secondary">
+                        Cerrar sesión
+                      </button>
+                    </li>
+                  </>
+                ) : (
+                  <li className="nav__cta">
+                    <NavLink to="/login" className="btn btn--secondary">
+                      Ingresar
+                    </NavLink>
+                  </li>
+                )}
+              </>
+            )}
           </ul>
         </nav>
       </div>

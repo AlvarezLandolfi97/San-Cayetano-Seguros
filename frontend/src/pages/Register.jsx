@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import useAuth from "../hooks/useAuth";
-import { isEmail, isStrongPassword } from "../validators";
-import "../styles/Register.css";
+import useAuth from "@/hooks/useAuth";
+import { isEmail, isStrongPassword } from "@/validators";
+import "@/styles/Register.css";
 
 function calcAge(isoDate) {
   if (!isoDate) return 0;
@@ -12,6 +12,15 @@ function calcAge(isoDate) {
   const m = today.getMonth() - d.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
   return age;
+}
+
+function normalizePhone(v) {
+  // Limpia espacios y guiones; si no tiene + al inicio, intenta E.164 simple
+  const raw = String(v || "").replace(/\s|-/g, "");
+  if (raw.startsWith("+")) return raw;
+  // Heurística simple: agrega '+' si son solo dígitos
+  if (/^\d{6,}$/.test(raw)) return `+${raw}`;
+  return raw;
 }
 
 export default function Register() {
@@ -29,6 +38,8 @@ export default function Register() {
   });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [showPass2, setShowPass2] = useState(false);
 
   const onChange = (e) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -49,13 +60,19 @@ export default function Register() {
     if (!form.first_name.trim()) return setErr("Ingresá tu nombre.");
     if (!form.last_name.trim()) return setErr("Ingresá tu apellido.");
     if (!isEmail(form.email)) return setErr("Email inválido.");
-    if (!/^\d{7,8}$/.test(form.dni)) return setErr("DNI inválido.");
+    if (!/^\d{7,8}$/.test(form.dni)) return setErr("DNI inválido (7 u 8 dígitos).");
+
     if (!form.phone.trim()) return setErr("Ingresá tu número de teléfono.");
-    if (!/^\+?\d{6,}$/.test(form.phone))
-      return setErr("El número de teléfono no tiene un formato válido.");
+    const phone = normalizePhone(form.phone);
+    if (!/^\+\d{6,}$/.test(phone))
+      return setErr("El número de teléfono no tiene un formato válido. Ej: +54 9 221....");
+
     if (!form.dob) return setErr("Ingresá tu fecha de nacimiento.");
     if (calcAge(form.dob) < 18)
       return setErr("Debés ser mayor de 18 años para registrarte.");
+
+    // Asegurate que isStrongPassword verifique al menos 6 chars;
+    // si tu validador es más estricto, adaptá este mensaje:
     if (!isStrongPassword(form.password))
       return setErr("La contraseña debe tener al menos 6 caracteres.");
     if (form.password !== form.confirm_password)
@@ -64,17 +81,28 @@ export default function Register() {
     try {
       setLoading(true);
       const payload = {
+        // Si tu backend espera first_name/last_name por separado, enviálos así:
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
         full_name: `${form.first_name.trim()} ${form.last_name.trim()}`.trim(),
         email: form.email.trim(),
         dni: form.dni.trim(),
-        phone: form.phone.trim(),
+        phone,
         dob: form.dob,
         password: form.password,
       };
       await register(payload);
-      nav("/dashboard");
+      // Al registrarse, lo llevamos directo a su panel:
+      nav("/dashboard/seguro", { replace: true });
     } catch (e2) {
-      setErr(e2?.response?.data?.detail || "No pudimos crear tu cuenta.");
+      // Intenta mapear errores comunes del backend
+      const d = e2?.response?.data;
+      const generic = "No pudimos crear tu cuenta.";
+      if (typeof d === "string") return setErr(d || generic);
+      if (d?.detail) return setErr(d.detail);
+      if (d?.email?.[0]) return setErr(`Email: ${d.email[0]}`);
+      if (d?.dni?.[0]) return setErr(`DNI: ${d.dni[0]}`);
+      setErr(generic);
     } finally {
       setLoading(false);
     }
@@ -104,6 +132,7 @@ export default function Register() {
                 value={form.first_name}
                 onChange={onChange}
                 required
+                autoComplete="given-name"
               />
             </div>
             <div className="form-group">
@@ -113,6 +142,7 @@ export default function Register() {
                 value={form.last_name}
                 onChange={onChange}
                 required
+                autoComplete="family-name"
               />
             </div>
           </div>
@@ -126,6 +156,7 @@ export default function Register() {
               value={form.email}
               onChange={onChange}
               required
+              autoComplete="email"
             />
           </div>
 
@@ -139,6 +170,8 @@ export default function Register() {
                 value={form.dni}
                 onChange={onChange}
                 required
+                placeholder="12345678"
+                autoComplete="off"
               />
             </div>
 
@@ -149,8 +182,11 @@ export default function Register() {
                 placeholder="+54 9 ..."
                 value={form.phone}
                 onChange={onChange}
+                inputMode="tel"
                 required
+                autoComplete="tel"
               />
+              <small className="hint">Formato recomendado: +54 9 221 ...</small>
             </div>
           </div>
 
@@ -165,30 +201,54 @@ export default function Register() {
               max={maxDob}
               required
             />
+            <small className="hint">Debés ser mayor de 18 años.</small>
           </div>
 
           {/* Contraseña + Confirmación */}
           <div className="form-row">
             <div className="form-group">
               <label>Contraseña</label>
-              <input
-                name="password"
-                type="password"
-                value={form.password}
-                onChange={onChange}
-                required
-              />
+              <div className="password-field">
+                <input
+                  name="password"
+                  type={showPass ? "text" : "password"}
+                  value={form.password}
+                  onChange={onChange}
+                  required
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  className="btn btn--ghost btn-eye"
+                  onClick={() => setShowPass((v) => !v)}
+                  aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+                >
+                  {showPass ? "🙈" : "👁️"}
+                </button>
+              </div>
+              <small className="hint">Mínimo 6 caracteres.</small>
             </div>
 
             <div className="form-group">
               <label>Confirmar contraseña</label>
-              <input
-                name="confirm_password"
-                type="password"
-                value={form.confirm_password}
-                onChange={onChange}
-                required
-              />
+              <div className="password-field">
+                <input
+                  name="confirm_password"
+                  type={showPass2 ? "text" : "password"}
+                  value={form.confirm_password}
+                  onChange={onChange}
+                  required
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  className="btn btn--ghost btn-eye"
+                  onClick={() => setShowPass2((v) => !v)}
+                  aria-label={showPass2 ? "Ocultar contraseña" : "Mostrar contraseña"}
+                >
+                  {showPass2 ? "🙈" : "👁️"}
+                </button>
+              </div>
             </div>
           </div>
 

@@ -1,22 +1,34 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import useAuth from "../hooks/useAuth";
+import { api } from "@/api";
+import useAuth from "@/hooks/useAuth";
 
 export default function Logout() {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const [processing, setProcessing] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        // Si tu backend tiene endpoint de logout, podrías llamarlo aquí (opcional)
-        // await api.post("/auth/logout");
+        // si tu backend tiene endpoint de logout, se puede llamar
+        await api.post("/auth/logout").catch(() => {});
       } finally {
-        logout();          // limpia token + estado
+        logout(); // limpia tokens y estado
+        setProcessing(false);
         navigate("/login", { replace: true });
       }
     })();
   }, [logout, navigate]);
 
-  return null; // no renderizamos nada; solo redirigimos
+  return (
+    <section style={{ padding: "4rem", textAlign: "center" }}>
+      {processing ? (
+        <>
+          <h2>Cerrando sesión...</h2>
+          <p>Por favor esperá un momento.</p>
+        </>
+      ) : null}
+    </section>
+  );
 }
