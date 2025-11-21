@@ -1,0 +1,265 @@
+/* =========================================================
+   Home.css — San Cayetano Seguros (Home)
+   ========================================================= */
+
+/* ---------- Variables base ---------- */
+:root {
+  --color-bg: #ffffff;
+  --color-text: #111827;
+  --color-text-muted: #6b7280;
+  --color-primary: #0d47a1;
+  --color-primary-ghost: #ffffff1a;
+  --color-border: #e6edf7;
+  --color-card-bg: #ffffff;
+  --color-soft: #f6f8ff;
+}
+
+/* ---------- Layout general ---------- */
+.home {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.container {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.section {
+  padding: 28px 0;
+}
+
+/* ---------- Encabezado de secciones ---------- */
+.home__sectionHeader {
+  margin: 28px 0 16px;
+  text-align: left;
+}
+
+.home__sectionHeader h2 {
+  margin: 0 0 6px;
+  font-size: 1.8rem;
+  line-height: 1.2;
+}
+
+.home__sectionHeader p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+}
+
+/* ---------- Cards genéricas ---------- */
+.card {
+  background: var(--color-card-bg);
+  border: 1px solid #eee;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.card__icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  background: #f5f7fb;
+  border-radius: 12px;
+}
+
+.card__icon img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.features {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #333;
+}
+
+.features li {
+  margin: 4px 0;
+}
+
+.card__actions {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+/* ---------- Botones ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 0.72rem 1rem;
+  border: 1px solid transparent;
+  text-decoration: none;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+    background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+  box-shadow: 0 6px 18px rgba(13, 71, 161, 0.18);
+}
+
+.btn--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(13, 71, 161, 0.22);
+}
+
+.btn--outline {
+  background: #fff;
+  color: var(--color-primary);
+  border-color: #cfe0fb;
+}
+
+.btn--outline:hover {
+  background: #f2f7ff;
+  border-color: #bcd2fa;
+}
+
+/* ---------- CTA inferior ---------- */
+.home__ctaBottom {
+  background: var(--color-soft);
+  margin-top: 24px;
+}
+
+.ctaBox {
+  padding: 20px 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ctaBox h3 {
+  margin: 0;
+}
+
+.ctaBox p {
+  margin: 0;
+  color: #333;
+}
+
+/* ---------- Utilidades ---------- */
+.muted { color: var(--color-text-muted); }
+.error { color: #b00020; margin: 12px 0; }
+
+/* ---------- Skeletons ---------- */
+.skeleton { position: relative; overflow: hidden; }
+.sk-line, .sk-badge, .sk-btn { background: #eef1f6; border-radius: 8px; }
+
+.sk-title { height: 22px; width: 60%; margin: 6px 0; }
+.sk-line  { height: 12px; margin: 6px 0; }
+
+.sk-badgeRow { display: flex; gap: 6px; margin: 8px 0; }
+.sk-badge { width: 60px; height: 18px; border-radius: 999px; }
+
+.sk-btn { height: 38px; width: 160px; margin-top: 8px; border-radius: 10px; }
+
+.skeleton::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, #ffffff77, transparent);
+  transform: translateX(-100%);
+  animation: shine 1.2s infinite;
+}
+@keyframes shine { 100% { transform: translateX(100%); } }
+
+/* ---------- Cards de Planes ---------- */
+.plan-card {
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  padding: 1.2rem 1.25rem;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  row-gap: 0.7rem;
+  box-shadow: 0 8px 28px rgba(13, 71, 161, 0.06);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  height: 100%;
+}
+
+.plan-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 36px rgba(13, 71, 161, 0.1);
+  border-color: #d9e6fb;
+}
+
+.plan-card__header { display: grid; gap: 0.15rem; }
+
+.plan-card__code {
+  display: inline-block;
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.2px;
+  color: var(--color-primary);
+  background: #eaf2ff;
+  border: 1px solid #d6e6ff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  width: fit-content;
+}
+
+.plan-card__name     { display: block; font-size: 1.25rem; font-weight: 800; color: var(--color-text); }
+.plan-card__subtitle { color: var(--color-text-muted); font-size: 0.98rem; }
+
+.plan-card__section-title {
+  margin: 0.6rem 0 0.35rem;
+  font-size: 0.98rem;
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.plan-card__list {
+  margin: 0; padding: 0;
+  display: grid; gap: 0.4rem;
+  list-style: none;
+}
+
+.plan-card__list li {
+  position: relative;
+  padding-left: 1.25rem;
+  line-height: 1.35;
+  color: #1f2937;
+}
+.plan-card__list li::before {
+  content: "";
+  position: absolute; left: 0; top: 0.45rem;
+  width: 0.55rem; height: 0.55rem; border-radius: 999px;
+  background: var(--color-primary);
+  box-shadow: 0 0 0 3px #eaf2ff;
+}
+
+.plan-card__footer { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 0.6rem; }
+.plan-card__badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+
+.badge {
+  background: #eef4ff;
+  border: 1px solid #dbe7ff;
+  color: #0b3d90;
+  font-weight: 700;
+  font-size: 0.75rem;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 640px) {
+  .plan-card { border-radius: 16px; padding: 1rem 1.1rem; }
+  .plan-card__name { font-size: 1.2rem; }
+}

@@ -1,0 +1,5 @@
+.ud-nav { display:flex; gap:1rem; margin:1rem 0; }
+.ud-nav a { padding:.5rem .8rem; border:1px solid #ddd; border-radius:8px; text-decoration:none; }
+.ud-nav a.active { background:#0d47a1; color:#fff; border-color:#0d47a1; }
+.ud-content { background:#fff; border:1px solid #eee; border-radius:12px; padding:1rem; }
+

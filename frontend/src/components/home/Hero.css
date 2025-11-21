@@ -1,0 +1,140 @@
+/* =========================================================
+   HERO — layout limpio, sobrio y responsive (actualizado)
+   ========================================================= */
+
+.hero {
+  background: #fff;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  overflow: visible;
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+}
+
+/* Variante invertida (opcional: si querés hero oscuro) */
+.hero--inverted {
+  background: #0d47a1;
+  color: #fff;
+  border-bottom-color: transparent;
+}
+.hero--inverted .hero__subtitle { color: #e9ecf8; }
+.hero--inverted .btn.btn--secondary { border-color: #ffffff55; color: #fff; }
+.hero--inverted .btn.btn--secondary:hover { background: #ffffff1a; }
+
+.hero--full {
+  padding: var(--space-10) 0;
+}
+
+.hero__inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-left: clamp(24px, 8vw, 72px);
+  padding-right: clamp(24px, 8vw, 72px);
+}
+
+/* --- GRID principal --- */
+.hero__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  justify-items: center;
+  text-align: center;
+  gap: var(--space-8);
+}
+
+/* --- Logo --- */
+.hero__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  /* FIX clamp: antes min > max; ahora respeta mobile->desktop */
+  width: clamp(200px, 22vw, 320px);
+  max-width: 100%;
+}
+.hero__logo img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  /* Si tu logo ya es oscuro y no querés forzarlo, quitá este filtro */
+  filter: brightness(0);
+}
+.hero--inverted .hero__logo img {
+  /* En modo invertido el logo suele ser claro */
+  filter: none;
+}
+
+/* --- Contenido --- */
+.hero__content {
+  max-width: 640px;
+  min-width: 0;
+}
+
+.hero__title {
+  font-size: var(--font-size-xxl);
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+  line-height: 1.2;
+}
+
+.hero__subtitle {
+  font-size: var(--font-size-lg);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-6);
+}
+
+/* --- Acciones (botones) --- */
+.hero__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* --- Layout desktop --- */
+@media (min-width: 768px) {
+  .hero__grid {
+    grid-template-columns: minmax(220px, clamp(240px, 22vw, 320px)) 1fr;
+    column-gap: clamp(32px, 8vw, 96px);
+    justify-items: start;
+    text-align: left;
+  }
+  .hero__actions {
+    justify-content: flex-start;
+  }
+}
+
+/* Micro-ajuste en móviles muy chicos */
+@media (max-width: 360px) {
+  .hero--full { padding: calc(var(--space-10) * 0.7) 0; }
+  .hero__actions { gap: calc(var(--space-3) * 0.8); }
+}
+
+/* --- Animaciones suaves --- */
+.anim-logo {
+  animation: fadeLeft 0.6s ease both;
+}
+.anim-content {
+  animation: fadeUp 0.8s ease both;
+}
+
+@keyframes fadeLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Respeta preferencias del usuario */
+@media (prefers-reduced-motion: reduce) {
+  .anim-logo, .anim-content { animation: none; }
+}
+
+/* Accesibilidad: focus visibles para CTAs que estén dentro del hero */
+.hero :where(a, button):where(:focus-visible) {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 10px;
+}

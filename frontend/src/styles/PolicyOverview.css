@@ -1,0 +1,164 @@
+.policy-overview { background: var(--color-bg); color: var(--color-text); }
+.policy-overview .container { max-width: 1080px; margin: 0 auto; padding: 0 16px 52px; }
+
+.po-header { display:flex; justify-content:space-between; align-items:center; margin:10px 0 22px; }
+.po-title { font-size:2rem; font-weight:900; }
+.po-header select {
+  border:1px solid var(--color-border);
+  border-radius:10px;
+  padding:10px 12px;
+  font-weight:600;
+  background:#fff;
+}
+
+/* Hero */
+.po-hero { margin-bottom:18px; }
+.po-hero__head { display:flex; align-items:center; gap:10px; }
+.po-plan { font-size:1.4rem; font-weight:900; margin:0; }
+.po-status { font-size:.85rem; font-weight:800; padding:4px 10px; border-radius:999px; }
+.po-status.is-active { background:#e7f6ec; border:1px solid #c7ead3; color:#0b5f2b; }
+.po-status.is-inactive { background:#fdeaea; border:1px solid #f7d0d0; color:#8a1b1b; }
+.po-hero__sub { margin:4px 0 0; }
+
+/* Resumen */
+.po-summary { margin-bottom:32px; }
+.po-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px 24px; }
+.po-grid dt { font-size:.85rem; color:var(--color-text-muted); margin-bottom:2px; }
+.po-grid dd { margin:0; font-weight:900; font-size:1.05rem; }
+.po-adj { display:flex; align-items:center; gap:8px; margin-top:10px; }
+.po-chip { background:#eef4ff; border:1px solid #dbe7ff; color:#0b3d90; border-radius:999px; padding:3px 10px; font-size:.75rem; font-weight:800; }
+
+/* Pagos inline */
+.po-payInline { margin-top:20px; }
+.po-sectionTitle { margin:0 0 10px; font-weight:900; font-size:1.1rem; }
+.po-inlineContent { display:flex; flex-direction:column; gap:10px; }
+.po-payHeader { font-size:1rem; font-weight:900; }
+
+.po-inlineRow {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  flex-wrap:wrap;
+  gap:12px;
+  border-top:1px solid var(--color-border);
+  padding-top:10px;
+}
+
+.po-inlineInfo { display:grid; gap:4px; }
+.po-charge__concept { font-weight:800; }
+.po-charge__meta { display:flex; gap:10px; flex-wrap:wrap; color:var(--color-text-muted); }
+.po-charge__amount { font-weight:900; }
+
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:8px; padding:.45rem .8rem; font-weight:800; cursor:pointer; border:1px solid transparent; }
+.btn--primary { background:var(--color-primary); color:#fff; border-color:var(--color-primary); }
+.btn--primary:hover { transform:translateY(-1px); box-shadow:0 6px 14px rgba(13,71,161,.22); }
+.btn--sm { font-size:.9rem; }
+
+.po-receipts summary { cursor:pointer; margin-top:8px; }
+.po-recList { list-style:disc; padding-left:18px; }
+
+.muted { color:var(--color-text-muted); }
+
+/* ... lo que ya tenías ... */
+
+/* ===== Datos de la póliza / vehículo ===== */
+.po-details { margin: 18px 0 26px; }
+.po-detailsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 24px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 14px;
+}
+.po-detailsGrid dt { font-size: .85rem; color: var(--color-text-muted); margin-bottom: 2px; }
+.po-detailsGrid dd { margin: 0; font-weight: 700; }
+.po-colSpan2 { grid-column: span 2 / span 2; }
+
+@media (max-width: 900px) {
+  .po-detailsGrid { grid-template-columns: repeat(2, 1fr); }
+  .po-colSpan2 { grid-column: span 2 / span 2; }
+}
+@media (max-width: 560px) {
+  .po-detailsGrid { grid-template-columns: 1fr; }
+  .po-colSpan2 { grid-column: auto; }
+}
+
+/* ---------- Comprobantes (recibos) ---------- */
+.po-receipts { margin-top: 8px; }
+.po-recHeader {
+  font-weight: 800;
+  font-size: 0.98rem;
+  margin: 10px 0 8px;
+}
+.po-recList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.po-receipt details {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(13,71,161,0.05);
+}
+.po-receipt__summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.po-receipt__summary::-webkit-details-marker { display: none; }
+
+.po-receipt__date {
+  font-weight: 800;
+}
+.po-receipt__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.po-receipt__amount {
+  font-weight: 800;
+}
+
+.po-receipt__body {
+  border-top: 1px solid var(--color-border);
+  padding: 12px 14px;
+  background: #fafcff;
+  border-radius: 0 0 12px 12px;
+}
+.po-receipt__dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 10px 18px;
+}
+.po-receipt__dl dt {
+  font-size: .85rem;
+  color: var(--color-text-muted);
+  margin-bottom: 2px;
+}
+.po-receipt__dl dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+/* botón chiquito para acciones de recibo */
+.btn--xs {
+  padding: 0.45rem 0.65rem;
+  font-size: .85rem;
+  border-radius: 10px;
+}
+
+/* en mobile mostramos el botón dentro del cuerpo también */
+.po-receipt__onlyMobile { display: none; }
+
+@media (max-width: 640px) {
+  .po-receipt__dl { grid-template-columns: 1fr; }
+  .po-receipt__onlyMobile { display: block; margin-top: 8px; }
+}
