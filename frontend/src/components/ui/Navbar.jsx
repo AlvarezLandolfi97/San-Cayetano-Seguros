@@ -1,6 +1,6 @@
 // src/components/ui/Navbar.jsx
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Link } from "react-router-dom";
+import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
 import useAuth from "@/hooks/useAuth";
 import "./navbar.css";
 
@@ -30,9 +30,49 @@ export default function Navbar() {
   const btnRef = useRef(null);
   const menuRef = useRef(null);
   const { user, logout } = useAuth();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
 
   const isLoggedIn = !!user;
   const isAdmin = isAdminUser(user);
+  const [activeSection, setActiveSection] = useState("inicio");
+  const [pendingAnchor, setPendingAnchor] = useState(null);
+
+  // Sección activa en home por scroll
+  useEffect(() => {
+    if (pathname !== "/") return;
+    const sectionIds = ["planes", "como-funciona", "contacto"];
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        if (visible.length) {
+          setActiveSection(visible[0].target.id);
+        }
+      },
+      { rootMargin: "-20% 0px -50% 0px", threshold: [0.25, 0.4, 0.6] }
+    );
+
+    sectionIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    const onScroll = () => {
+      const first = document.getElementById(sectionIds[0]);
+      if (first && first.getBoundingClientRect().top > 120) {
+        setActiveSection("inicio");
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [pathname]);
 
   // Cerrar con ESC
   useEffect(() => {
@@ -58,9 +98,51 @@ export default function Navbar() {
     return () => window.removeEventListener("click", onClick);
   }, [open]);
 
-  // Clase activa de NavLink
-  const active = ({ isActive }) =>
-    isActive ? "nav__link is-active" : "nav__link";
+  const isActive = (key) => {
+    if (key === "cotizar") return pathname.startsWith("/quote");
+    if (key === "ingresar") return pathname === "/login" || pathname === "/register";
+    if (key === "panel") return pathname.startsWith("/dashboard");
+    if (key === "admin") return pathname.startsWith("/admin");
+
+    if (pathname === "/") {
+      if (["inicio", "planes", "como-funciona", "contacto"].includes(key)) {
+        return activeSection === key;
+      }
+    }
+    if (key === "inicio") return pathname === "/";
+    return false;
+  };
+
+  const linkClass = (key) =>
+    isActive(key) ? "nav__link is-active" : "nav__link";
+
+  const scrollToSection = (id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      const y = el.getBoundingClientRect().top + window.scrollY - 100;
+      window.scrollTo({ top: y, behavior: "smooth" });
+      setActiveSection(id);
+    }
+  };
+
+  useEffect(() => {
+    if (pathname === "/" && pendingAnchor) {
+      const id = pendingAnchor;
+      requestAnimationFrame(() => scrollToSection(id));
+      setPendingAnchor(null);
+    }
+  }, [pathname, pendingAnchor]);
+
+  const handleAnchor = (e, id) => {
+    e.preventDefault();
+    if (pathname !== "/") {
+      setPendingAnchor(id);
+      navigate("/");
+    } else {
+      scrollToSection(id);
+    }
+    setOpen(false);
+  };
 
   return (
     <header className="site-header">
@@ -106,64 +188,121 @@ export default function Navbar() {
             ref={menuRef}
             className={`nav__list ${open ? "is-open" : ""}`}
             onClick={(e) => {
-              if (e.target.tagName === "A") setOpen(false);
+              if (e.target.tagName === "A" || e.target.tagName === "BUTTON") {
+                setOpen(false);
+              }
             }}
           >
-            {/* Siempre visible: Inicio */}
-            <li>
-              <NavLink to="/" className={active} end>
-                Inicio
-              </NavLink>
-            </li>
-
-            {/* Vista ADMIN: solo Admin + Cerrar sesión */}
-            {isLoggedIn && isAdmin ? (
+            {/* Público o cliente */}
+            {!isAdmin && (
               <>
                 <li>
-                  <NavLink to="/admin" className={active}>
-                    Admin
-                  </NavLink>
+                  <Link
+                    to="/#hero"
+                    className={linkClass("inicio")}
+                    onClick={(e) => handleAnchor(e, "hero")}
+                  >
+                    Inicio
+                  </Link>
                 </li>
                 <li>
-                  <button onClick={logout} className="btn btn--secondary">
-                    Cerrar sesión
-                  </button>
+                  <Link
+                    to="/#planes"
+                    className={linkClass("planes")}
+                    onClick={(e) => handleAnchor(e, "planes")}
+                  >
+                    Ver planes
+                  </Link>
                 </li>
-              </>
-            ) : (
-              // Vista NO ADMIN
-              <>
                 <li>
-                  <NavLink to="/quote" className={active}>
+                  <Link
+                    to="/#como-funciona"
+                    className={linkClass("como-funciona")}
+                    onClick={(e) => handleAnchor(e, "como-funciona")}
+                  >
+                    Cómo funciona
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/#contacto"
+                    className={linkClass("contacto")}
+                    onClick={(e) => handleAnchor(e, "contacto")}
+                  >
+                    Contacto
+                  </Link>
+                </li>
+                <li>
+                  <NavLink to="/quote" className={linkClass("cotizar")}>
                     Cotizar
                   </NavLink>
                 </li>
 
                 {isLoggedIn ? (
                   <>
-                    <li>
-                      <NavLink to="/claim-policy" className={active}>
-                        Asociar póliza
+                    <li className="nav__cta">
+                      <NavLink
+                        to="/dashboard/seguro"
+                        className={
+                          isActive("panel")
+                            ? "btn btn--secondary is-active"
+                            : "btn btn--secondary"
+                        }
+                      >
+                        Mi panel
                       </NavLink>
                     </li>
                     <li>
-                      <NavLink to="/dashboard/seguro" className={active}>
-                        Mi cuenta
-                      </NavLink>
-                    </li>
-                    <li>
-                      <button onClick={logout} className="btn btn--secondary">
+                      <button
+                        onClick={() => {
+                          logout();
+                        }}
+                        className="btn btn--secondary"
+                      >
                         Cerrar sesión
                       </button>
                     </li>
                   </>
                 ) : (
                   <li className="nav__cta">
-                    <NavLink to="/login" className="btn btn--secondary">
+                    <NavLink
+                      to="/login"
+                      className={
+                        isActive("ingresar")
+                          ? "btn btn--secondary is-active"
+                          : "btn btn--secondary"
+                      }
+                    >
                       Ingresar
                     </NavLink>
                   </li>
                 )}
+              </>
+            )}
+
+            {/* Admin */}
+            {isAdmin && (
+              <>
+                <li>
+                  <NavLink to="/" className={linkClass("inicio")} end>
+                    Inicio
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink to="/admin" className={linkClass("admin")}>
+                    Admin
+                  </NavLink>
+                </li>
+                <li>
+                  <button
+                    onClick={() => {
+                      logout();
+                    }}
+                    className="btn btn--secondary"
+                  >
+                    Cerrar sesión
+                  </button>
+                </li>
               </>
             )}
           </ul>

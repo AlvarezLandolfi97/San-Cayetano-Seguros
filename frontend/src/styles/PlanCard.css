@@ -1,0 +1,80 @@
+.plan {
+  position: relative;
+  background: color-mix(in srgb, var(--color-surface, #fff) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border, #d4deef) 70%, transparent);
+  border-radius: 18px;
+  padding: 18px 18px 16px;
+  box-shadow:
+    0 12px 30px color-mix(in srgb, var(--color-primary, #0b2f6d) 18%, transparent),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+  transition: transform .18s ease, box-shadow .2s ease;
+}
+
+.plan:hover {
+  transform: none;
+  box-shadow:
+    0 12px 30px color-mix(in srgb, var(--color-primary, #0b2f6d) 18%, transparent),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.plan__title {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--color-text, #0c1628);
+  letter-spacing: 0.2px;
+}
+
+.plan__subtitle {
+  margin-top: 4px;
+  color: var(--color-text-muted, #4a5568);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.plan__list {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+  padding-left: 16px;
+  color: var(--color-text, #0c1628);
+  font-size: 14px;
+  line-height: 1.35;
+  flex: 1;
+}
+
+.plan__list li::marker {
+  color: var(--color-primary, #0b2f6d);
+}
+
+.plan__footer {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.plan__btn {
+  width: 100%;
+  background: linear-gradient(180deg, rgba(12, 42, 90, 0.94) 0%, rgba(12, 42, 90, 0.86) 60%, rgba(10, 37, 80, 0.94) 100%);
+  color: #f4f7ff;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .2s ease, filter .2s ease;
+  box-shadow: 0 12px 26px rgba(7, 36, 82, 0.24);
+  text-align: center;
+  text-decoration: none;
+  backdrop-filter: blur(4px);
+}
+
+.plan__btn:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(180deg, rgba(12, 42, 90, 0.98) 0%, rgba(12, 42, 90, 0.9) 60%, rgba(8, 31, 70, 0.98) 100%);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(7, 36, 82, 0.28);
+}

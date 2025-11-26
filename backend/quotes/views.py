@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status, permissions, throttling
 from .serializers import QuoteInputSerializer
 from products.models import Product
+from django.utils import timezone
 
 
 class QuoteView(APIView):
@@ -25,7 +26,8 @@ class QuoteView(APIView):
         )
 
         # Calcula el factor por antigüedad del vehículo
-        age = max(0, 2025 - year)
+        current_year = timezone.now().year
+        age = max(0, current_year - year)
         factor = 1.0 + (0.15 if age > 15 else (0.08 if age > 8 else 0.0))
 
         # Arma la respuesta con precios estimados

@@ -6,9 +6,13 @@ export function cleanPhone(p) {
   return raw;
 }
 
-export function buildWhatsAppLink(destNumber, message) {
+export function buildWhatsAppLink(destNumber, message, opts = {}) {
   const phone = cleanPhone(destNumber).replace(/^\+/, ""); // wa.me usa sin '+'
   const text = encodeURIComponent(message || "");
-  // Si querés usar API oficial de wa (con app o web), podés cambiar wa.me por api.whatsapp.com/send
+  const { preferWeb, preferApi } = opts;
+
+  // preferWeb: uso desktop; preferApi: uso móvil; fallback: wa.me
+  if (preferWeb) return `https://web.whatsapp.com/send?phone=${phone}&text=${text}`;
+  if (preferApi) return `https://api.whatsapp.com/send?phone=${phone}&text=${text}`;
   return `https://wa.me/${phone}?text=${text}`;
 }

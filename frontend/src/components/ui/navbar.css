@@ -1,29 +1,29 @@
 /* =========================================================
-   NAVBAR — Negro, fijo, con menú lateral derecho
+   NAVBAR — claro, sutil y consistente con la paleta
    ========================================================= */
 
-/* Header fijo */
 .site-header {
-  background: var(--color-primary);
-  color: #fff;
+  --nav-height: 92px;
   position: sticky;
   top: 0;
   z-index: 100;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.5);
+  background: linear-gradient(90deg, #061a3a 0%, #0a2a5a 60%, #0c3168 100%);
+  box-shadow: 0 8px 30px rgba(6, 20, 48, 0.45);
+  color: #fff;
 }
 
-/* Contenedor principal */
 .nav {
   position: relative;
   display: flex;
   align-items: center;
-  height: 72px;
+  height: auto;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 var(--space-4);
+  padding: 18px 24px;
+  gap: 16px;
+  min-height: var(--nav-height);
 }
 
-/* Marca */
 .nav__logo {
   display: inline-flex;
   align-items: center;
@@ -32,66 +32,73 @@
   color: inherit;
 }
 .nav__brand-img {
-  height: 36px;
+  height: 46px;
   width: auto;
   display: block;
 }
 
-/* Botón hamburguesa */
 .nav__toggle {
   position: absolute;
-  right: var(--space-4);
+  right: 20px;
   top: 50%;
   transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
-  background: transparent;
-  border: 1px solid #222;
-  border-radius: var(--radius-sm);
+  width: 46px;
+  height: 46px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
   color: #fff;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .nav__toggle:hover {
-  background: #0a0a0a;
-  border-color: #333;
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
 }
 
-/* Contenedor menú */
 .nav__menu {
   margin-left: auto;
   position: relative;
 }
 
-/* Lista base */
 .nav__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   align-items: center;
-  gap: clamp(12px, 2.4vw, 28px);
+  gap: clamp(8px, 2vw, 18px);
   white-space: nowrap;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 6px;
+  backdrop-filter: blur(8px);
 }
 
-/* Links */
 .nav__link {
-  display: inline-block;
-  color: #fff;
-  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  color: #e7eefc;
+  font-size: 14px;
   text-decoration: none;
-  padding: 6px 4px;
-  transition: color 0.2s ease;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  transition: all 0.2s ease;
 }
-.nav__link:hover,
+.nav__link:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: #e7eefc;
+}
 .nav__link.is-active {
-  color: #e5e5e5;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
 }
 
-/* CTA "Ingresar" */
 .nav__cta {
   margin-left: clamp(8px, 1.2vw, 16px);
 }
@@ -104,25 +111,27 @@
     display: inline-flex;
   }
 
-  /* Drawer oculto */
   .nav__list {
     flex-direction: column;
-    gap: var(--space-4);
+    gap: 10px;
     position: fixed;
-    top: 72px;
+    top: var(--nav-height);
     right: 0;
     left: auto;
     width: min(78vw, 360px);
-    height: calc(100dvh - 72px);
-    padding: var(--space-5);
-    background: #000;
-    border-left: 1px solid #191919;
+    height: calc(100dvh - var(--nav-height));
+    padding: clamp(18px, 5vw, 28px);
+    background: linear-gradient(150deg, #0a2a5a 0%, #0c3168 55%, #0f3f86 100%);
+    border-left: 1px solid rgba(255, 255, 255, 0.16);
     z-index: 100;
     transform: translateX(100%);
-    transition: transform 0.25s ease-out;
+    transition: transform 0.25s ease-out, box-shadow 0.25s ease-out;
+    box-shadow: -12px 0 38px rgba(7, 20, 48, 0.26);
+    white-space: normal;
+    align-items: stretch;
+    justify-content: flex-start;
   }
 
-  /* Drawer abierto */
   .nav__list.is-open {
     transform: translateX(0);
   }
@@ -131,18 +140,28 @@
     font-size: 1.05rem;
     width: 100%;
     text-align: left;
+    color: #e7eefc;
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: block;
+    text-decoration: none;
+    transition: all 0.2s ease;
+  }
+  .nav__link:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.18);
   }
 
   .nav__cta {
-    margin-top: var(--space-4);
+    width: 100%;
   }
 
-  /* Backdrop */
   .nav__menu::before {
     content: "";
     position: fixed;
-    inset: 72px 0 0 0;
-    background: rgba(0, 0, 0, 0.35);
+    inset: var(--nav-height) 0 0 0;
+    background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.08), transparent 45%),
+      rgba(6, 19, 46, 0.45);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.2s ease;
@@ -155,7 +174,7 @@
   }
 
   .nav__brand-img {
-    height: 30px;
+    height: 36px;
   }
 }
 
@@ -181,6 +200,7 @@
     padding: 0;
     height: auto;
     transform: none;
+    box-shadow: none;
   }
 }
 

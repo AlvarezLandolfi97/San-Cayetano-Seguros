@@ -50,18 +50,18 @@
   flex: 1;
   border: 1px solid var(--color-border, #cbd5e1);
   background: #fff;
-  color: var(--color-primary, #0d47a1);
-  font-weight: 500;
+  color: var(--color-primary, #0b2f6d);
+  font-weight: 600;
   font-size: 0.85rem;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   text-align: center;
   transition: all 0.2s ease-in-out;
 }
 
 .payments .pay-cta .btn--secondary:hover {
   background: var(--color-soft, #f2f6ff);
-  border-color: var(--color-primary, #0d47a1);
+  border-color: var(--color-primary, #0b2f6d);
 }
 
 /* Botón principal */

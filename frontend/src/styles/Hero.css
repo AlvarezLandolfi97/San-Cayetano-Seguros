@@ -1,0 +1,185 @@
+/* =========================================================
+   HERO — estilo actualizado sin cambiar contenidos
+   ========================================================= */
+
+.hero {
+  position: relative;
+  background: #ffffff;
+  color: var(--color-text);
+  border-bottom: 1px solid transparent;
+  overflow: hidden;
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+}
+
+.hero--full {
+  padding: clamp(34px, 6vw, 72px) 0;
+}
+
+.hero__inner {
+  position: relative;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-left: clamp(20px, 7vw, 80px);
+  padding-right: clamp(20px, 7vw, 80px);
+}
+
+/* --- GRID principal --- */
+.hero__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  justify-items: center;
+  text-align: center;
+  gap: clamp(18px, 4vw, 32px);
+}
+
+/* --- Logo --- */
+.hero__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  width: clamp(220px, 22vw, 320px);
+  max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  justify-self: center;
+}
+.hero__logo img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+.hero--inverted .hero__logo {
+  background: #0d47a1;
+  border-color: #0d47a1;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+}
+.hero--inverted .hero__logo img { filter: brightness(1.12); }
+
+/* --- Contenido --- */
+.hero__content {
+  max-width: 520px;
+  min-width: 0;
+}
+
+.hero__title {
+  font-size: clamp(2.1rem, 3vw, 2.8rem);
+  font-weight: 800;
+  margin-bottom: var(--space-2);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.hero__subtitle {
+  font-size: 1.08rem;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+  line-height: 1.6;
+}
+
+/* --- Acciones (botones) --- */
+.hero__actions {
+  display: inline-flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+}
+
+.hero__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  border: 1px solid transparent;
+  letter-spacing: 0.01em;
+}
+
+.hero__btn--primary {
+  background: linear-gradient(180deg, rgba(12, 42, 90, 0.92) 0%, rgba(12, 42, 90, 0.85) 60%, rgba(10, 37, 80, 0.94) 100%);
+  color: #f4f7ff;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 26px rgba(7, 36, 82, 0.24);
+  backdrop-filter: blur(4px);
+}
+
+.hero__btn--primary:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(180deg, rgba(12, 42, 90, 0.98) 0%, rgba(12, 42, 90, 0.9) 60%, rgba(8, 31, 70, 0.98) 100%);
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(7, 36, 82, 0.28);
+}
+
+.hero__btn--ghost {
+  background: transparent;
+  color: #0b2f6d;
+  border-color: #d4deef;
+  box-shadow: 0 6px 14px rgba(7, 36, 82, 0.08);
+}
+
+.hero__btn--ghost:hover {
+  transform: translateY(-1px);
+  background: #f2f6ff;
+  border-color: #c7d6f1;
+  box-shadow: 0 10px 20px rgba(7, 36, 82, 0.12);
+}
+/* --- Layout desktop --- */
+@media (min-width: 768px) {
+  .hero__grid {
+    grid-template-columns: minmax(220px, clamp(240px, 22vw, 320px)) minmax(320px, 540px);
+    column-gap: clamp(28px, 6vw, 72px);
+    justify-content: center;
+    justify-items: start;
+    text-align: left;
+  }
+  .hero__actions {
+    justify-content: flex-start;
+  }
+}
+
+/* Micro-ajuste en móviles muy chicos */
+@media (max-width: 360px) {
+  .hero--full { padding: calc(var(--space-10) * 0.72) 0; }
+  .hero__actions { gap: calc(var(--space-3) * 0.8); width: 100%; }
+  .hero__actions .btn { flex: 1 1 100%; justify-content: center; }
+}
+
+/* --- Animaciones suaves --- */
+.anim-logo {
+  animation: fadeLeft 0.6s ease both;
+}
+.anim-content {
+  animation: fadeUp 0.8s ease both;
+}
+
+@keyframes fadeLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Respeta preferencias del usuario */
+@media (prefers-reduced-motion: reduce) {
+  .anim-logo, .anim-content { animation: none; }
+}
+
+/* Accesibilidad: focus visibles para CTAs que estén dentro del hero */
+.hero :where(a, button):where(:focus-visible) {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 10px;
+}

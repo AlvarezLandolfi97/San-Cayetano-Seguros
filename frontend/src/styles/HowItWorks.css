@@ -1,0 +1,121 @@
+.how {
+  padding: clamp(28px, 6vw, 64px) 0;
+  background: #ffffff;
+}
+
+.how__inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 4vw, 28px);
+}
+
+.how__header h2 {
+  margin: 0 0 6px;
+  font-size: var(--font-size-section-title, 1.8rem);
+  line-height: 1.2;
+  color: var(--section-title-color, var(--color-text, #0c1628));
+}
+
+.how__subtitle {
+  margin: 0;
+  color: var(--color-text-muted, #4a5568);
+}
+
+.how__grid {
+  margin-top: 18px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.how__card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  background: linear-gradient(
+    180deg,
+    rgba(11, 47, 109, 0.38) 0%,
+    rgba(11, 47, 109, 0.34) 55%,
+    rgba(11, 47, 109, 0.48) 100%
+  );
+  box-shadow: 0 10px 28px rgba(7, 36, 82, 0.14);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.how__card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--how-bg);
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  filter: brightness(0.82) saturate(0.95);
+  opacity: 0.78;
+  transform: scale(1.02);
+  z-index: -2;
+}
+
+.how__card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(4, 15, 34, 0.38) 40%, rgba(4, 15, 34, 0.55) 100%);
+  z-index: -1;
+}
+
+.how__body {
+  display: grid;
+  gap: 6px;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.how__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f9fbff;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.how__heading {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.how__title {
+  margin: 0;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.2;
+  min-height: 2.4em; /* reserva alto para 2 líneas para uniformidad */
+  display: flex;
+  align-items: center;
+}
+
+.how__desc {
+  margin: 0;
+  color: #fff;
+  line-height: 1.45;
+}
+
+@media (max-width: 1024px) {
+  .how__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .how__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

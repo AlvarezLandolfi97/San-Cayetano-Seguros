@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import "./Hero.css";
+import "@/styles/Hero.css";
 
 export default function Hero({
   title = "Seguros vehiculares",
@@ -12,7 +12,7 @@ export default function Hero({
   logoAlt = "San Cayetano Seguros",
 }) {
   return (
-    <section className="hero hero--full hero--light">
+    <section className="hero hero--full hero--light" id="hero">
       <div className="hero__inner container">
         <div className="hero__grid">
           {/* Logo a la izquierda */}
@@ -25,11 +25,11 @@ export default function Hero({
             <h1 className="hero__title">{title}</h1>
             <p className="hero__subtitle">{subtitle}</p>
             <div className="hero__actions">
-              <Link to={primaryHref} className="btn btn--primary">
+              <Link to={primaryHref} className="hero__btn hero__btn--primary">
                 {primaryText}
               </Link>
-              <Link to={secondaryHref} className="btn btn--secondary">
-                {secondaryText}
+              <Link to="/login" className="hero__btn hero__btn--ghost">
+                Ingresar
               </Link>
             </div>
           </div>

@@ -22,11 +22,12 @@ class VehicleViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         """
         Define permisos según la acción:
-        - Admin: create/update/delete/list
-        - Cliente autenticado: solo read (list/retrieve)
+        - Admin: create/update/delete
+        - Autenticados: list/retrieve de sus vehículos
         """
-        if self.action in ["create", "update", "partial_update", "destroy", "list"]:
-            permission_classes = [permissions.IsAdminUser]
-        else:
-            permission_classes = [permissions.IsAuthenticated]
-        return [perm() for perm in permission_classes]
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [permissions.IsAdminUser()]
+        if self.action in ["list", "retrieve"]:
+            return [permissions.IsAuthenticated()]
+        # Fallback: acceso autenticado
+        return [permissions.IsAuthenticated()]

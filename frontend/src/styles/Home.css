@@ -2,46 +2,39 @@
    Home.css — San Cayetano Seguros (Home)
    ========================================================= */
 
-/* ---------- Variables base ---------- */
-:root {
-  --color-bg: #ffffff;
-  --color-text: #111827;
-  --color-text-muted: #6b7280;
-  --color-primary: #0d47a1;
-  --color-primary-ghost: #ffffff1a;
-  --color-border: #e6edf7;
-  --color-card-bg: #ffffff;
-  --color-soft: #f6f8ff;
-}
-
 /* ---------- Layout general ---------- */
 .home {
-  background: var(--color-bg);
+  background: #ffffff;
   color: var(--color-text);
 }
 
 .container {
-  max-width: 1080px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 0 clamp(16px, 4vw, 28px);
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 0 clamp(14px, 5vw, 20px);
+  }
 }
 
 .section {
-  padding: 28px 0;
+  padding: clamp(28px, 6vw, 72px) 0;
 }
 
 /* ---------- Encabezado de secciones ---------- */
+/* Encabezados generales (secciones antiguas) */
 .home__sectionHeader {
   margin: 28px 0 16px;
   text-align: left;
 }
-
 .home__sectionHeader h2 {
   margin: 0 0 6px;
   font-size: 1.8rem;
   line-height: 1.2;
 }
-
 .home__sectionHeader p {
   margin: 0;
   color: var(--color-text-muted);
@@ -50,14 +43,14 @@
 
 /* ---------- Cards genéricas ---------- */
 .card {
-  background: var(--color-card-bg);
-  border: 1px solid #eee;
-  border-radius: 14px;
-  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  box-shadow: var(--shadow-sm, 0 4px 12px rgba(0, 0, 0, 0.03));
 }
 
 .card__icon {
@@ -78,7 +71,7 @@
 .features {
   margin: 8px 0 0;
   padding-left: 18px;
-  color: #333;
+  color: var(--color-text);
 }
 
 .features li {
@@ -113,7 +106,7 @@
   background: var(--color-primary);
   color: #fff;
   border-color: var(--color-primary);
-  box-shadow: 0 6px 18px rgba(13, 71, 161, 0.18);
+  box-shadow: 0 6px 18px rgba(7, 36, 82, 0.18);
 }
 
 .btn--primary:hover {
@@ -122,14 +115,16 @@
 }
 
 .btn--outline {
-  background: #fff;
-  color: var(--color-primary);
-  border-color: #cfe0fb;
+  background: #fff !important;
+  color: var(--color-primary) !important;
+  border-color: #cfe0fb !important;
+  background-image: none !important;
 }
 
 .btn--outline:hover {
-  background: #f2f7ff;
-  border-color: #bcd2fa;
+  background: #f2f7ff !important;
+  border-color: #bcd2fa !important;
+  color: var(--color-primary) !important;
 }
 
 /* ---------- CTA inferior ---------- */
@@ -138,6 +133,7 @@
   margin-top: 24px;
 }
 
+/* ---------- Sección planes con fondo suave ---------- */
 .ctaBox {
   padding: 20px 0;
   display: flex;
@@ -247,6 +243,24 @@
 
 .plan-card__footer { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 0.6rem; }
 .plan-card__badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+
+.plan-card__footer .btn.btn--secondary,
+.plan-card__footer a.btn--secondary {
+  background: linear-gradient(180deg, rgba(12, 42, 90, 0.92) 0%, rgba(12, 42, 90, 0.85) 60%, rgba(10, 37, 80, 0.94) 100%);
+  color: #f4f7ff;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 10px 24px rgba(7, 36, 82, 0.24);
+  backdrop-filter: blur(4px);
+}
+
+.plan-card__footer .btn.btn--secondary:hover,
+.plan-card__footer a.btn--secondary:hover {
+  background: linear-gradient(180deg, rgba(12, 42, 90, 0.98) 0%, rgba(12, 42, 90, 0.9) 60%, rgba(8, 31, 70, 0.98) 100%);
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(7, 36, 82, 0.28);
+  transform: translateY(-1px);
+}
 
 .badge {
   background: #eef4ff;

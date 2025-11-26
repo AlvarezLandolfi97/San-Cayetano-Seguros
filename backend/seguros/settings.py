@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "corsheaders",
 
     # Apps locales
+    "common",
     "accounts",
     "vehicles",
     "products",
