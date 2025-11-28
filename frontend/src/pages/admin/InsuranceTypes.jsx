@@ -69,7 +69,9 @@ export default function InsuranceTypes() {
           <h1>Seguros</h1>
           <p className="muted">Creá, editá o eliminá los tipos de seguro ofrecidos.</p>
         </div>
-        <button className="btn btn--primary" onClick={openCreate}>Nuevo seguro</button>
+        <div style={{ marginLeft: "auto" }}>
+          <button className="btn btn--primary" onClick={openCreate}>Nuevo seguro</button>
+        </div>
       </header>
 
       {err && <div className="register-alert">{err}</div>}

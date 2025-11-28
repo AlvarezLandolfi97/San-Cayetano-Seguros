@@ -16,6 +16,9 @@ export default function Policies() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [compact, setCompact] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   // combos
   const [users, setUsers] = useState([]);
@@ -30,6 +33,9 @@ export default function Policies() {
 
   // modal rápido para cuota
   const [premiumEdit, setPremiumEdit] = useState({ open: false, id: null, value: "" });
+  const [expandedId, setExpandedId] = useState(null);
+  const [inlineDraft, setInlineDraft] = useState(null);
+  const [inlineSaving, setInlineSaving] = useState(false);
 
   // preferencias admin (umbral “próximo a vencer”)
   const [threshold, setThreshold] = useState(7);
@@ -89,6 +95,13 @@ export default function Policies() {
     fetchUsers();
     fetchProducts();
     fetchSettings();
+    const mq = window.matchMedia("(max-width: 900px)");
+    const handler = (e) => setCompact(e.matches);
+    handler(mq);
+    mq.addEventListener ? mq.addEventListener("change", handler) : mq.addListener(handler);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener("change", handler) : mq.removeListener(handler);
+    };
   }, []);
 
   // ------- helpers visuales -------
@@ -96,14 +109,14 @@ export default function Policies() {
     const term = q.trim().toLowerCase();
     if (!term) return rows;
     return rows.filter((r) => {
+      const fullName = [r.user?.first_name, r.user?.last_name].filter(Boolean).join(" ");
       const parts = [
         r.number,
-        r.product?.name,
         r.vehicle?.plate,
         r.user?.email,
         r.user?.first_name,
         r.user?.last_name,
-        r.status,
+        fullName,
       ]
         .filter(Boolean)
         .join(" ")
@@ -134,6 +147,49 @@ export default function Policies() {
   }, [filtered, threshold]);
 
   const tableRows = useMemo(() => [...expiring, ...others], [expiring, others]);
+  const displayUser = (r) =>
+    r.user
+      ? `${r.user.first_name || ""} ${r.user.last_name || ""}`.trim() || r.user.email || r.user.id
+      : r.user_id || "—";
+  const pageCount = useMemo(
+    () => Math.max(1, Math.ceil((tableRows.length || 1) / PAGE_SIZE)),
+    [tableRows.length]
+  );
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return tableRows.slice(start, start + PAGE_SIZE);
+  }, [tableRows, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tableRows.length]);
+
+  const draftFromRow = (row) => ({
+    id: row.id,
+    number: row.number || "",
+    status: row.status || "active",
+    start_date: row.start_date || "",
+    end_date: row.end_date || "",
+    premium: row.premium ?? "",
+    vehicle: {
+      plate: row.vehicle?.plate || "",
+      make: row.vehicle?.make || "",
+      model: row.vehicle?.model || "",
+      version: row.vehicle?.version || "",
+      year: row.vehicle?.year || "",
+      city: row.vehicle?.city || "",
+    },
+  });
+
+  function openDetail(row) {
+    if (expandedId === row.id) {
+      setExpandedId(null);
+      setInlineDraft(null);
+      return;
+    }
+    setExpandedId(row.id);
+    setInlineDraft(draftFromRow(row));
+  }
 
   // ------- CRUD -------
   function openCreate() {
@@ -225,6 +281,37 @@ export default function Policies() {
     });
   }
 
+  function updateInlineDraft(field, value, nested = false) {
+    setInlineDraft((d) => {
+      if (!d) return d;
+      if (nested) return { ...d, vehicle: { ...d.vehicle, [field]: value } };
+      return { ...d, [field]: value };
+    });
+  }
+
+  async function saveInline() {
+    if (!inlineDraft?.id) return;
+    setInlineSaving(true);
+    try {
+      const payload = {
+        number: inlineDraft.number || null,
+        status: inlineDraft.status || "active",
+        start_date: inlineDraft.start_date || null,
+        end_date: inlineDraft.end_date || null,
+        premium: inlineDraft.premium === "" ? null : Number(inlineDraft.premium),
+        vehicle: inlineDraft.vehicle,
+      };
+      await api.patch(`/admin/policies/${inlineDraft.id}`, payload);
+      await fetchPolicies();
+      setExpandedId(null);
+      setInlineDraft(null);
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo guardar los cambios.");
+    } finally {
+      setInlineSaving(false);
+    }
+  }
+
   async function saveQuickPremium() {
     const val = Number(premiumEdit.value);
     if (!Number.isFinite(val)) return alert("Ingresá un número válido para la cuota.");
@@ -255,43 +342,253 @@ export default function Policies() {
       <header className="admin__head">
         <div>
           <h1>Pólizas</h1>
-          <p className="muted">
-            Crear, editar, eliminar y asociar pólizas. Usá el botón directo para <strong>modificar la cuota</strong>.
-          </p>
         </div>
-        <button className="btn btn--primary" onClick={openCreate}>Nueva póliza</button>
+        <button
+          className="btn btn--primary"
+          style={{ marginLeft: "auto", alignSelf: "center" }}
+          onClick={openCreate}
+        >
+          Nueva póliza
+        </button>
       </header>
 
       {err && <div className="register-alert" style={{ marginTop: 8 }}>{err}</div>}
-
-      {/* Preferencia: umbral de “próximo a vencer” */}
-      <div className="card-like" style={{ marginBottom: 16 }}>
-        <div className="filters" style={{ alignItems: "center", gap: 12 }}>
-          <label className="muted">Avisar (y destacar) cuando falten</label>
-          <select
-            value={threshold}
-            onChange={(e) => saveThreshold(Number(e.target.value))}
-            disabled={savingThreshold}
-          >
-            {[3,5,7,10,15,20,30].map((n) => (
-              <option key={n} value={n}>{n} días</option>
-            ))}
-          </select>
-          <span className="muted">para el vencimiento.</span>
-          <div style={{ marginLeft: "auto", maxWidth: 360, width: "100%" }}>
-            <input
-              placeholder="Buscar por número, patente, seguro o usuario…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
 
       {/* Sección destacada: Próximo a vencer */}
       {expiring.length > 0 && (
         <div className="card-like" style={{ borderColor: "#ffe6bf", background: "#fffaf2" }}>
           <h3 style={{ marginTop: 0 }}>Próximo a vencer</h3>
+          {compact ? (
+            <div className="compact-list">
+              {expiring.map((r) => {
+                const isExpanded = expandedId === r.id;
+                const draft = isExpanded ? inlineDraft || draftFromRow(r) : null;
+                return (
+                  <div className="compact-item" key={`exp-${r.id}`}>
+                    <div className="compact-main">
+                      <div className="compact-text">
+                        <div className="compact-title-row">
+                          <p className="compact-title">{r.number || `#${r.id}`}</p>
+                          <span className="badge" style={{ background: "#fff1ce", borderColor: "#ffd48a", color: "#7a3b00" }}>
+                            {r.__daysLeft} día{r.__daysLeft === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                        <p className="compact-sub">{r.vehicle?.plate || "—"} · {displayUser(r)}</p>
+                      </div>
+                      <button className="compact-toggle" onClick={() => openDetail(r)} aria-label="Ver detalle">
+                        {isExpanded ? "–" : "+"}
+                      </button>
+                    </div>
+                    {isExpanded && draft && (
+                      <div className="compact-details">
+                        <div className="detail-row">
+                          <div className="detail-label">Seguro</div>
+                          <div className="detail-value">{r.product?.name || "—"}</div>
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Usuario</div>
+                          <div className="detail-value">{displayUser(r)}</div>
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Estado</div>
+                          <select className="detail-input" value={draft.status} onChange={(e) => updateInlineDraft("status", e.target.value)}>
+                            <option value="active">Activa</option>
+                            <option value="suspended">Suspendida</option>
+                            <option value="expired">Vencida</option>
+                            <option value="cancelled">Cancelada</option>
+                          </select>
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Vigencia</div>
+                          <div className="detail-value detail-inline">
+                            <input className="detail-input" type="date" value={draft.start_date} onChange={(e) => updateInlineDraft("start_date", e.target.value)} />
+                            <span style={{ margin: "0 6px" }}>→</span>
+                            <input className="detail-input" type="date" value={draft.end_date} onChange={(e) => updateInlineDraft("end_date", e.target.value)} />
+                          </div>
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Cuota</div>
+                          <input className="detail-input" value={draft.premium ?? ""} onChange={(e) => updateInlineDraft("premium", e.target.value)} />
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Vehículo</div>
+                          <div className="detail-value detail-inline vehicle-grid">
+                            <input className="detail-input" placeholder="Patente" value={draft.vehicle?.plate || ""} onChange={(e) => updateInlineDraft("plate", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Marca" value={draft.vehicle?.make || ""} onChange={(e) => updateInlineDraft("make", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Modelo" value={draft.vehicle?.model || ""} onChange={(e) => updateInlineDraft("model", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Versión" value={draft.vehicle?.version || ""} onChange={(e) => updateInlineDraft("version", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Año" value={draft.vehicle?.year || ""} onChange={(e) => updateInlineDraft("year", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Ciudad" value={draft.vehicle?.city || ""} onChange={(e) => updateInlineDraft("city", e.target.value, true)} />
+                          </div>
+                        </div>
+                        <div className="compact-actions-inline">
+                          <button className="btn btn--primary" onClick={saveInline} disabled={inlineSaving}>Guardar cambios</button>
+                          <button className="btn btn--outline" onClick={() => onDelete(r)}>Eliminar</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Número</th>
+                    <th>Seguro</th>
+                    <th>Patente</th>
+                    <th>Usuario</th>
+                    <th>Vence en</th>
+                    <th>Vigencia</th>
+                    <th>Cuota</th>
+                    <th style={{ width: 240 }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expiring.map((r) => (
+                    <tr key={`exp-${r.id}`}>
+                      <td>{r.number || `#${r.id}`}</td>
+                      <td>{r.product?.name || "—"}</td>
+                      <td>{r.vehicle?.plate || "—"}</td>
+                      <td>{displayUser(r)}</td>
+                      <td>
+                        <span
+                          style={{
+                            background: "#fff1ce",
+                            border: "1px solid #ffd48a",
+                            color: "#7a3b00",
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                          }}
+                          title={`Faltan ${r.__daysLeft} día(s)`}
+                        >
+                          {r.__daysLeft} día{r.__daysLeft === 1 ? "" : "s"}
+                        </span>
+                      </td>
+                      <td className="small">
+                        {r.start_date || "—"} → {r.end_date || "—"}
+                      </td>
+                      <td>${r.premium ?? "—"}</td>
+                      <td>
+                        <div className="row-actions">
+                          <button className="btn btn--outline" onClick={() => openQuickPremium(r)}>
+                            Modificar cuota
+                          </button>
+                          <button className="btn btn--outline" onClick={() => openEdit(r)}>Editar</button>
+                          <button className="btn btn--outline" onClick={() => onDelete(r)}>Eliminar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+
+      {/* Tabla general (expiring primero) */}
+      <div className="card-like">
+                <div className="pagination">
+          <button className="btn btn--outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+            Anterior
+          </button>
+          <input
+            className="admin__search"
+            placeholder="Buscar por número de póliza, patente o cliente…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <button className="btn btn--outline" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount}>
+            Siguiente
+          </button>
+        </div>
+        <div className="pagination-info">
+          <span className="muted">Página {page} de {pageCount}</span>
+        </div>
+        {compact ? (
+          <div className="compact-list">
+            {loading ? (
+              <p className="muted">Cargando…</p>
+            ) : tableRows.length === 0 ? (
+              <p className="muted">Sin resultados.</p>
+            ) : (
+              paginatedRows.map((r) => {
+                const isExpanded = expandedId === r.id;
+                const draft = isExpanded ? inlineDraft || draftFromRow(r) : null;
+                return (
+                  <div className="compact-item" key={r.id}>
+                    <div className="compact-main">
+                      <div className="compact-text">
+                        <div className="compact-title-row">
+                          <p className="compact-title">{r.number || `#${r.id}`}</p>
+                          <span className="badge">{r.status}</span>
+                        </div>
+                        <p className="compact-sub">{r.vehicle?.plate || "—"} · {displayUser(r)}</p>
+                      </div>
+                      <button className="compact-toggle" onClick={() => openDetail(r)} aria-label="Ver detalle">
+                        {isExpanded ? "–" : "+"}
+                      </button>
+                    </div>
+                    {isExpanded && draft && (
+                      <div className="compact-details">
+                        <div className="detail-row">
+                          <div className="detail-label">Seguro</div>
+                          <div className="detail-value">{r.product?.name || "—"}</div>
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Usuario</div>
+                          <div className="detail-value">{displayUser(r)}</div>
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Estado</div>
+                          <select className="detail-input" value={draft.status} onChange={(e) => updateInlineDraft("status", e.target.value)}>
+                            <option value="active">Activa</option>
+                            <option value="suspended">Suspendida</option>
+                            <option value="expired">Vencida</option>
+                            <option value="cancelled">Cancelada</option>
+                          </select>
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Vigencia</div>
+                          <div className="detail-value detail-inline">
+                            <input className="detail-input" type="date" value={draft.start_date} onChange={(e) => updateInlineDraft("start_date", e.target.value)} />
+                            <span style={{ margin: "0 6px" }}>→</span>
+                            <input className="detail-input" type="date" value={draft.end_date} onChange={(e) => updateInlineDraft("end_date", e.target.value)} />
+                          </div>
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Cuota</div>
+                          <input className="detail-input" value={draft.premium ?? ""} onChange={(e) => updateInlineDraft("premium", e.target.value)} />
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Vehículo</div>
+                          <div className="detail-value detail-inline vehicle-grid">
+                            <input className="detail-input" placeholder="Patente" value={draft.vehicle?.plate || ""} onChange={(e) => updateInlineDraft("plate", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Marca" value={draft.vehicle?.make || ""} onChange={(e) => updateInlineDraft("make", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Modelo" value={draft.vehicle?.model || ""} onChange={(e) => updateInlineDraft("model", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Versión" value={draft.vehicle?.version || ""} onChange={(e) => updateInlineDraft("version", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Año" value={draft.vehicle?.year || ""} onChange={(e) => updateInlineDraft("year", e.target.value, true)} />
+                            <input className="detail-input" placeholder="Ciudad" value={draft.vehicle?.city || ""} onChange={(e) => updateInlineDraft("city", e.target.value, true)} />
+                          </div>
+                        </div>
+                        <div className="compact-actions-inline">
+                          <button className="btn btn--primary" onClick={saveInline} disabled={inlineSaving}>Guardar cambios</button>
+                          <button className="btn btn--outline" onClick={() => onDelete(r)}>Eliminar</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
@@ -300,111 +597,53 @@ export default function Policies() {
                   <th>Seguro</th>
                   <th>Patente</th>
                   <th>Usuario</th>
-                  <th>Vence en</th>
+                  <th>Estado</th>
                   <th>Vigencia</th>
                   <th>Cuota</th>
                   <th style={{ width: 240 }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {expiring.map((r) => (
-                  <tr key={`exp-${r.id}`}>
-                    <td>{r.number || `#${r.id}`}</td>
-                    <td>{r.product?.name || "—"}</td>
-                    <td>{r.vehicle?.plate || "—"}</td>
-                    <td>
-                      {r.user
-                        ? `${r.user.first_name || ""} ${r.user.last_name || ""}`.trim() || r.user.email || r.user.id
-                        : r.user_id || "—"}
-                    </td>
-                    <td>
-                      <span
-                        style={{
-                          background: "#fff1ce",
-                          border: "1px solid #ffd48a",
-                          color: "#7a3b00",
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          fontWeight: 600,
-                          whiteSpace: "nowrap",
-                        }}
-                        title={`Faltan ${r.__daysLeft} día(s)`}
-                      >
-                        {r.__daysLeft} día{r.__daysLeft === 1 ? "" : "s"}
-                      </span>
-                    </td>
-                    <td className="small">
-                      {r.start_date || "—"} → {r.end_date || "—"}
-                    </td>
-                    <td>${r.premium ?? "—"}</td>
-                    <td>
-                      <div className="row-actions">
-                        <button className="btn btn--outline" onClick={() => openQuickPremium(r)}>
-                          Modificar cuota
-                        </button>
-                        <button className="btn btn--outline" onClick={() => openEdit(r)}>Editar</button>
-                        <button className="btn btn--outline" onClick={() => onDelete(r)}>Eliminar</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {loading ? (
+                  <tr><td colSpan={8}>Cargando…</td></tr>
+                ) : tableRows.length === 0 ? (
+                  <tr><td colSpan={8}>Sin resultados.</td></tr>
+                ) : (
+                  paginatedRows.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.number || `#${r.id}`}</td>
+                      <td>{r.product?.name || "—"}</td>
+                      <td>{r.vehicle?.plate || "—"}</td>
+                      <td>{displayUser(r)}</td>
+                      <td>{r.status}</td>
+                      <td className="small">
+                        {r.start_date || "—"} → {r.end_date || "—"}
+                      </td>
+                      <td>${r.premium ?? "—"}</td>
+                      <td>
+                        <div className="row-actions">
+                          <button className="btn btn--outline" onClick={() => openQuickPremium(r)}>
+                            Modificar cuota
+                          </button>
+                          <button className="btn btn--outline" onClick={() => openEdit(r)}>Editar</button>
+                          <button className="btn btn--outline" onClick={() => onDelete(r)}>Eliminar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {/* Tabla general (expiring primero) */}
-      <div className="card-like">
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Número</th>
-                <th>Seguro</th>
-                <th>Patente</th>
-                <th>Usuario</th>
-                <th>Estado</th>
-                <th>Vigencia</th>
-                <th>Cuota</th>
-                <th style={{ width: 240 }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={8}>Cargando…</td></tr>
-              ) : tableRows.length === 0 ? (
-                <tr><td colSpan={8}>Sin resultados.</td></tr>
-              ) : (
-                tableRows.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.number || `#${r.id}`}</td>
-                    <td>{r.product?.name || "—"}</td>
-                    <td>{r.vehicle?.plate || "—"}</td>
-                    <td>
-                      {r.user
-                        ? `${r.user.first_name || ""} ${r.user.last_name || ""}`.trim() || r.user.email || r.user.id
-                        : r.user_id || "—"}
-                    </td>
-                    <td>{r.status}</td>
-                    <td className="small">
-                      {r.start_date || "—"} → {r.end_date || "—"}
-                    </td>
-                    <td>${r.premium ?? "—"}</td>
-                    <td>
-                      <div className="row-actions">
-                        <button className="btn btn--outline" onClick={() => openQuickPremium(r)}>
-                          Modificar cuota
-                        </button>
-                        <button className="btn btn--outline" onClick={() => openEdit(r)}>Editar</button>
-                        <button className="btn btn--outline" onClick={() => onDelete(r)}>Eliminar</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        )}
+        <div className="pagination">
+          <button className="btn btn--outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+            Anterior
+          </button>
+          <span className="muted">Página {page} de {pageCount}</span>
+          <button className="btn btn--outline" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount}>
+            Siguiente
+          </button>
         </div>
       </div>
 
@@ -621,6 +860,7 @@ export default function Policies() {
           />
         </div>
       )}
+
     </section>
   );
 }

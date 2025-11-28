@@ -94,7 +94,9 @@ export default function Users() {
           <h1>Usuarios</h1>
           <p className="muted">Crear, editar, eliminar y asociar pólizas a clientes.</p>
         </div>
-        <button className="btn btn--primary" onClick={openCreate}>Nuevo usuario</button>
+        <div style={{ marginLeft: "auto" }}>
+          <button className="btn btn--primary" onClick={openCreate}>Nuevo usuario</button>
+        </div>
       </header>
 
       {err && <div className="register-alert">{err}</div>}

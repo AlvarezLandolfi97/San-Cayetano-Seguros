@@ -29,9 +29,11 @@ import Profile from "@/pages/dashboard/Profile";
 
 // Admin
 import AdminLayout from "@/pages/admin/AdminLayout";
+import AdminHome from "@/pages/admin/AdminHome";
 import InsuranceTypes from "@/pages/admin/InsuranceTypes";
 import Policies from "@/pages/admin/Policies";
 import Users from "@/pages/admin/Users";
+import ContactInfoAdmin from "@/pages/admin/ContactInfo";
 
 // -------- Guards --------
 function RequireAuth() {
@@ -99,10 +101,12 @@ export default function AppRoutes() {
             {/* Admin */}
             <Route element={<AdminGate />}>
               <Route path="/admin" element={<AdminLayout />}>
-                <Route index element={<InsuranceTypes />} />
+                <Route index element={<AdminHome />} />
                 <Route path="seguros" element={<InsuranceTypes />} />
                 <Route path="polizas" element={<Policies />} />
                 <Route path="usuarios" element={<Users />} />
+                <Route path="contacto" element={<ContactInfoAdmin />} />
+                <Route path="inicio" element={<AdminHome />} />
               </Route>
             </Route>
           </Route>
