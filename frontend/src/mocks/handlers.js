@@ -330,12 +330,10 @@ http.get(`${API}/admin/policies`, async ({ request }) => {
   http.delete(`${API}/admin/policies/:id`, async ({ params }) => {
     await delay(250);
     const { id } = params;
-    const exists = db.policies.some((p) => String(p.id) === String(id));
-    if (!exists) return new HttpResponse(null, { status: 404 });
-    db.policies = db.policies.filter((p) => String(p.id) !== String(id));
-    delete db.pendingByPolicy[id];
-    delete db.receiptsByPolicy[id];
-    return HttpResponse.json({ ok: true });
+    const idx = db.policies.findIndex((p) => String(p.id) === String(id));
+    if (idx === -1) return new HttpResponse(null, { status: 404 });
+    db.policies[idx] = { ...db.policies[idx], status: "inactive" };
+    return HttpResponse.json(db.policies[idx]);
   }),
 
   http.post(`${API}/admin/policies/:id/generate-code`, async ({ params }) => {

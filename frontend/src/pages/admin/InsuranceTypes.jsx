@@ -5,6 +5,10 @@ export default function InsuranceTypes() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [compact, setCompact] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
+  const [inlineDraft, setInlineDraft] = useState(null);
+  const [inlineSaving, setInlineSaving] = useState(false);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null); // null = create
@@ -21,6 +25,16 @@ export default function InsuranceTypes() {
   }
 
   useEffect(() => { fetchAll(); }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const handler = (e) => setCompact(e.matches);
+    handler(mq);
+    mq.addEventListener ? mq.addEventListener("change", handler) : mq.addListener(handler);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener("change", handler) : mq.removeListener(handler);
+    };
+  }, []);
 
   function openCreate() {
     setEditing(null);
@@ -52,82 +66,204 @@ export default function InsuranceTypes() {
     }
   }
 
-  async function onDelete(row) {
-    if (!confirm(`¿Eliminar el seguro "${row.name}"?`)) return;
+  async function onDeleteInside() {
+    if (!editing?.id) return;
+    const ok = window.confirm(`¿Eliminar el seguro "${editing.name}"?`);
+    if (!ok) return;
     try {
-      await api.delete(`/admin/insurance-types/${row.id}`);
+      await api.delete(`/admin/insurance-types/${editing.id}`);
+      setFormOpen(false); setEditing(null);
       await fetchAll();
     } catch (e) {
       alert(e?.response?.data?.detail || "No se pudo eliminar.");
     }
   }
 
+  function openInline(row) {
+    if (expandedId === row.id) {
+      setExpandedId(null);
+      setInlineDraft(null);
+      return;
+    }
+    setExpandedId(row.id);
+    setInlineDraft({ id: row.id, name: row.name || "", subtitle: row.subtitle || "" });
+  }
+
+  function updateInline(field, value) {
+    setInlineDraft((d) => (d ? { ...d, [field]: value } : d));
+  }
+
+  async function saveInline() {
+    if (!inlineDraft?.id) return;
+    setInlineSaving(true);
+    try {
+      await api.patch(`/admin/insurance-types/${inlineDraft.id}`, {
+        name: inlineDraft.name,
+        subtitle: inlineDraft.subtitle,
+      });
+      await fetchAll();
+      setExpandedId(null);
+      setInlineDraft(null);
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo guardar.");
+    } finally {
+      setInlineSaving(false);
+    }
+  }
+
+  async function deleteInline(row) {
+    if (!row?.id) return;
+    const ok = window.confirm(`¿Eliminar el seguro "${row.name || row.id}"?`);
+    if (!ok) return;
+    setInlineSaving(true);
+    try {
+      await api.delete(`/admin/insurance-types/${row.id}`);
+      await fetchAll();
+      if (expandedId === row.id) {
+        setExpandedId(null);
+        setInlineDraft(null);
+      }
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo eliminar.");
+    } finally {
+      setInlineSaving(false);
+    }
+  }
+
   return (
-    <section className="section container">
+    <section className="section container policies-page">
       <header className="admin__head">
         <div>
           <h1>Seguros</h1>
-          <p className="muted">Creá, editá o eliminá los tipos de seguro ofrecidos.</p>
         </div>
-        <div style={{ marginLeft: "auto" }}>
+        <div className="ml-auto align-self-center">
           <button className="btn btn--primary" onClick={openCreate}>Nuevo seguro</button>
         </div>
       </header>
 
-      {err && <div className="register-alert">{err}</div>}
+      {err && <div className="register-alert mt-8">{err}</div>}
 
       <div className="card-like">
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr>
-              <th style={{width:80}}>ID</th>
-              <th>Nombre</th>
-              <th>Descripción</th>
-              <th style={{width:180}}>Acciones</th>
-            </tr></thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={4}>Cargando…</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td colSpan={4}>Sin resultados.</td></tr>
-              ) : rows.map(r => (
-                <tr key={r.id}>
-                  <td>{r.id}</td>
-                  <td>{r.name}</td>
-                  <td>{r.subtitle || "—"}</td>
-                  <td>
-                    <div className="row-actions">
-                      <button className="btn btn--outline" onClick={() => openEdit(r)}>Editar</button>
-                      <button className="btn btn--outline" onClick={() => onDelete(r)}>Eliminar</button>
+        {compact ? (
+          <div className="compact-list">
+            {loading ? (
+              <p className="muted">Cargando…</p>
+            ) : rows.length === 0 ? (
+              <p className="muted">Sin resultados.</p>
+            ) : (
+              rows.map((r) => {
+                const isExpanded = expandedId === r.id;
+                const draft = isExpanded ? inlineDraft || { id: r.id, name: r.name || "", subtitle: r.subtitle || "" } : null;
+                return (
+                  <div className="compact-item" key={r.id}>
+                    <div className="compact-main">
+                      <div className="compact-text">
+                        <div className="compact-title-row">
+                          <p className="compact-title">{r.name}</p>
+                        </div>
+                      </div>
+                      <button className="compact-toggle" onClick={() => openInline(r)} aria-label="Ver detalle">
+                        {isExpanded ? "–" : "+"}
+                      </button>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    {isExpanded && draft && (
+                      <div className="compact-details">
+                        <div className="detail-row">
+                          <div className="detail-label">Nombre</div>
+                          <input
+                            className="detail-input"
+                            value={draft.name}
+                            onChange={(e) => updateInline("name", e.target.value)}
+                          />
+                        </div>
+                        <div className="detail-row">
+                          <div className="detail-label">Descripción</div>
+                          <textarea
+                            className="detail-input"
+                            rows={3}
+                            value={draft.subtitle}
+                            onChange={(e) => updateInline("subtitle", e.target.value)}
+                          />
+                        </div>
+                        <div className="compact-actions-inline">
+                          <button className="btn btn--danger" onClick={() => deleteInline(r)} disabled={inlineSaving}>
+                            Eliminar
+                          </button>
+                          <button className="btn btn--primary" onClick={saveInline} disabled={inlineSaving}>
+                            {inlineSaving ? "Guardando…" : "Guardar"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table policies-table">
+              <thead><tr>
+                <th>Nombre</th>
+                <th>Descripción</th>
+                <th className="col-narrow"></th>
+              </tr></thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={3}>Cargando…</td></tr>
+                ) : rows.length === 0 ? (
+                  <tr><td colSpan={3}>Sin resultados.</td></tr>
+                ) : rows.map(r => (
+                  <tr key={r.id}>
+                    <td>{r.name}</td>
+                    <td>{r.subtitle || "—"}</td>
+                    <td>
+                      <button className="btn btn--outline" onClick={() => openEdit(r)}>Gestionar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {formOpen && (
-        <div className="drawer">
-          <div className="drawer__panel" style={{maxWidth:520}}>
+        <div className="drawer drawer--modal">
+          <div className="drawer__panel manage-modal">
             <div className="drawer__head">
-              <h2>{editing ? "Editar seguro" : "Nuevo seguro"}</h2>
-              <button className="btn btn--outline" onClick={() => setFormOpen(false)}>Cerrar</button>
+              <h2>{editing ? `Gestionar seguro ${editing.name || ""}` : "Nuevo seguro"}</h2>
+              <button className="drawer__close" onClick={() => setFormOpen(false)} aria-label="Cerrar">&times;</button>
             </div>
 
-            <form className="form" onSubmit={onSave}>
-              <div className="field">
-                <label>Nombre</label>
-                <input value={draft.name} onChange={(e)=>setDraft(d=>({...d,name:e.target.value}))} required />
+            <form className="detail-list" onSubmit={onSave}>
+              <div className="detail-row">
+                <div className="detail-label">Nombre</div>
+                <div className="detail-value">
+                  <input
+                    className="detail-input"
+                    value={draft.name}
+                    onChange={(e)=>setDraft(d=>({...d,name:e.target.value}))}
+                    required
+                  />
+                </div>
               </div>
-              <div className="field">
-                <label>Descripción</label>
-                <textarea rows={3} value={draft.subtitle} onChange={(e)=>setDraft(d=>({...d,subtitle:e.target.value}))}/>
+              <div className="detail-row">
+                <div className="detail-label">Descripción</div>
+                <div className="detail-value">
+                  <textarea
+                    className="detail-input"
+                    rows={3}
+                    value={draft.subtitle}
+                    onChange={(e)=>setDraft(d=>({...d,subtitle:e.target.value}))}
+                  />
+                </div>
               </div>
-              <div className="actions">
+              <div className="actions actions--end">
+                {editing?.id && (
+                  <button className="btn btn--danger" type="button" onClick={onDeleteInside}>Eliminar</button>
+                )}
                 <button className="btn btn--primary" type="submit">Guardar</button>
-                <button className="btn btn--outline" type="button" onClick={()=>setFormOpen(false)}>Cancelar</button>
               </div>
             </form>
           </div>

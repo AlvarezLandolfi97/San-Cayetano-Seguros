@@ -1,190 +1,710 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/api";
 
 export default function Users() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const [compact, setCompact] = useState(false);
+  const statusClass = (s) => (s ? `status--${s}` : "status--default");
+  const [statusFilter, setStatusFilter] = useState("");
 
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [draft, setDraft] = useState({ email:"", dni:"", first_name:"", last_name:"", dob:"" });
+  const [manageModal, setManageModal] = useState({ open: false, row: null, draft: null, saving: false });
+  const [removedPolicies, setRemovedPolicies] = useState([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [expandedUserId, setExpandedUserId] = useState(null);
+  const [inlineDraft, setInlineDraft] = useState(null);
+  const [inlineSaving, setInlineSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, row: null, loading: false });
+  const [manualPoliciesInput, setManualPoliciesInput] = useState("");
 
-  // asociar póliza
-  const [assocOpen, setAssocOpen] = useState(false);
-  const [assocTarget, setAssocTarget] = useState(null);
+  // pólizas disponibles
   const [availablePolicies, setAvailablePolicies] = useState([]);
-  const [selectedPolicy, setSelectedPolicy] = useState("");
+  const allowedPolicies = useMemo(
+    () => availablePolicies.filter((p) => !p.user_id),
+    [availablePolicies]
+  );
+  const userPolicyIds = useMemo(() => {
+    const userId = manageModal.row?.id;
+    if (!userId) return [];
+    return availablePolicies
+      .filter((p) => Number(p.user_id) === Number(userId))
+      .map((p) => Number(p.id))
+      .filter(Number.isFinite);
+  }, [availablePolicies, manageModal.row?.id]);
+  const assignedIds = useMemo(() => {
+    const ids = new Set((manageModal.draft?.policies || []).map((n) => Number(n)).filter(Number.isFinite));
+    userPolicyIds.forEach((id) => ids.add(id));
+    removedPolicies.forEach((id) => ids.delete(Number(id)));
+    return ids;
+  }, [manageModal.draft?.policies, userPolicyIds, removedPolicies]);
+  const deleteConfirmPolicies = useMemo(() => {
+    const userId = deleteConfirm.row?.id;
+    if (!userId) return [];
+    return availablePolicies.filter((p) => Number(p.user_id) === Number(userId));
+  }, [deleteConfirm.row?.id, availablePolicies]);
+  const manualSuggestions = useMemo(() => {
+    const term = manualPoliciesInput.trim().toLowerCase();
+    if (!term) return [];
+    return allowedPolicies
+      .filter((p) => {
+        if (assignedIds.has(Number(p.id))) return false;
+        const parts = [
+          p.number,
+          p.vehicle?.plate,
+          p.id ? String(p.id) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return parts.includes(term);
+      })
+      .slice(0, 5);
+  }, [allowedPolicies, manualPoliciesInput, assignedIds]);
+  const assignedPolicies = useMemo(() => {
+    return Array.from(assignedIds).map((id) => {
+      const match = availablePolicies.find((p) => Number(p.id) === Number(id));
+      return match || { id, number: id, vehicle: {} };
+    });
+  }, [assignedIds, availablePolicies]);
 
   async function fetchUsers() {
     setLoading(true); setErr("");
     try {
       const { data } = await api.get("/admin/users");
-      setRows(data || []);
+      const arr = (data || []).map((u) => ({ status: u.status || "active", ...u }));
+      setRows(arr);
     } catch (e) {
       setErr(e?.response?.data?.detail || "No se pudieron cargar los usuarios.");
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { fetchUsers(); }, []);
+  async function fetchPoliciesList() {
+    try {
+      const { data } = await api.get("/admin/policies", { params: { page: 1, page_size: 200 } });
+      const arr = data?.results || data || [];
+      setAvailablePolicies(arr);
+    } catch {
+      setAvailablePolicies([]);
+    }
+  }
+
+  useEffect(() => {
+    fetchUsers();
+    fetchPoliciesList();
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const handler = (e) => setCompact(e.matches);
+    handler(mq);
+    mq.addEventListener ? mq.addEventListener("change", handler) : mq.addListener(handler);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener("change", handler) : mq.removeListener(handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [q, rows.length]);
 
   function openCreate() {
-    setEditing(null);
-    setDraft({ email:"", dni:"", first_name:"", last_name:"", dob:"" });
-    setDrawerOpen(true);
+    setManageModal({
+      open: true,
+      row: { id: null },
+      draft: { status: "active", email:"", dni:"", first_name:"", last_name:"", dob:"", phone:"", policies: [] },
+      saving: false,
+    });
+    setManualPoliciesInput("");
+    setRemovedPolicies([]);
   }
-  function openEdit(row) {
-    setEditing(row);
-    setDraft({
+
+  function openManage(row) {
+    const currentUserPolicies = availablePolicies
+      .filter((p) => Number(p.user_id) === Number(row.id))
+      .map((p) => Number(p.id))
+      .filter(Number.isFinite);
+    setManageModal({
+      open: true,
+      row,
+      draft: {
+        status: row.status || "active",
+        email: row.email || "",
+        dni: row.dni || "",
+        first_name: row.first_name || "",
+        last_name: row.last_name || "",
+        dob: row.dob || "",
+        phone: row.phone || "",
+        policies: Array.isArray(row.policies)
+          ? row.policies.map((p) => p.id || p)
+          : currentUserPolicies,
+      },
+      saving: false,
+    });
+    setManualPoliciesInput("");
+    setRemovedPolicies([]);
+  }
+
+  function closeManage() {
+    setManageModal({ open: false, row: null, draft: null, saving: false });
+    setRemovedPolicies([]);
+  }
+
+  function updateManage(field, value) {
+    setManageModal((m) => ({ ...m, draft: { ...m.draft, [field]: value } }));
+  }
+
+  function openInline(row) {
+    if (expandedUserId === row.id) {
+      setExpandedUserId(null);
+      setInlineDraft(null);
+      return;
+    }
+    setExpandedUserId(row.id);
+    setInlineDraft({
+      id: row.id,
+      status: row.status || "active",
       email: row.email || "",
       dni: row.dni || "",
       first_name: row.first_name || "",
       last_name: row.last_name || "",
       dob: row.dob || "",
+      phone: row.phone || "",
     });
-    setDrawerOpen(true);
   }
 
-  async function onSave(e) {
-    e.preventDefault();
+  function updateInline(field, value) {
+    setInlineDraft((d) => (d ? { ...d, [field]: value } : d));
+  }
+
+  function removePolicyFromDraft(id) {
+    setManageModal((m) => {
+      if (!m.draft) return m;
+      const filtered = (m.draft.policies || []).filter((p) => Number(p) !== Number(id));
+      return { ...m, draft: { ...m.draft, policies: filtered } };
+    });
+    setRemovedPolicies((prev) => Array.from(new Set([...prev, Number(id)])));
+  }
+
+  async function saveInline() {
+    if (!inlineDraft?.id) return;
+    setInlineSaving(true);
     try {
-      if (editing) await api.patch(`/admin/users/${editing.id}`, draft);
-      else await api.post("/admin/users", draft);
-      setDrawerOpen(false); setEditing(null);
+      const payload = {
+        status: inlineDraft.status || "active",
+        email: inlineDraft.email,
+        dni: inlineDraft.dni || null,
+        first_name: inlineDraft.first_name || null,
+        last_name: inlineDraft.last_name || null,
+        dob: inlineDraft.dob || null,
+        phone: inlineDraft.phone || null,
+      };
+      await api.patch(`/admin/users/${inlineDraft.id}`, payload);
       await fetchUsers();
-    } catch (e2) {
-      alert(e2?.response?.data?.detail || "No se pudo guardar el usuario.");
+      setExpandedUserId(null);
+      setInlineDraft(null);
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo guardar el usuario.");
+    } finally {
+      setInlineSaving(false);
     }
   }
 
-  async function onDelete(row) {
-    if (!confirm(`¿Eliminar el usuario ${row.email}?`)) return;
+  async function deleteInline(id) {
+    if (!id) return;
+    setInlineSaving(true);
     try {
-      await api.delete(`/admin/users/${row.id}`);
+      await api.patch(`/admin/users/${id}`, { status: "deleted" });
       await fetchUsers();
+      setExpandedUserId(null);
+      setInlineDraft(null);
     } catch (e) {
       alert(e?.response?.data?.detail || "No se pudo eliminar.");
+    } finally {
+      setInlineSaving(false);
     }
   }
 
-  async function openAssociate(row) {
-    setAssocTarget(row);
-    setSelectedPolicy("");
-    setAssocOpen(true);
-    // cargar pólizas sin usuario
-    const { data } = await api.get("/admin/policies", { params: { only_unassigned: 1, page: 1, page_size: 100 } });
-    setAvailablePolicies(data?.results || data || []);
-  }
-
-  async function confirmAssociate() {
-    if (!selectedPolicy) return;
+  async function saveManage() {
+    if (!manageModal.draft || !manageModal.row) return;
+    setManageModal((m) => ({ ...m, saving: true }));
     try {
-      await api.patch(`/admin/policies/${selectedPolicy}`, { user_id: assocTarget.id });
-      setAssocOpen(false); setAssocTarget(null);
-      alert("Póliza asociada.");
+      const draftIds = (manageModal.draft.policies || []).map((p) => Number(p)).filter(Number.isFinite);
+      const baseIds = new Set([...draftIds, ...userPolicyIds]);
+      const userId = manageModal.row.id;
+      const allowedSet = new Set(
+        [
+          ...allowedPolicies.map((p) => Number(p.id)).filter(Number.isFinite),
+          ...userPolicyIds,
+        ]
+      );
+      const filteredPolicyIds = Array.from(baseIds)
+        .filter((id) => allowedSet.has(id))
+        .filter((id) => !removedPolicies.includes(id));
+      const payload = {
+        email: manageModal.draft.email,
+        dni: manageModal.draft.dni || null,
+        first_name: manageModal.draft.first_name || null,
+        last_name: manageModal.draft.last_name || null,
+        dob: manageModal.draft.dob || null,
+        phone: manageModal.draft.phone || null,
+        policy_ids: filteredPolicyIds,
+      };
+      if (manageModal.row.id) {
+      await api.patch(`/admin/users/${manageModal.row.id}`, payload);
+    } else {
+      await api.post("/admin/users", payload);
+    }
+      await fetchUsers();
+      await fetchPoliciesList();
+      closeManage();
     } catch (e) {
-      alert(e?.response?.data?.detail || "No se pudo asociar la póliza.");
+      alert(e?.response?.data?.detail || "No se pudo guardar el usuario.");
+      setManageModal((m) => ({ ...m, saving: false }));
     }
   }
+
+  function askDeleteUser(row) {
+    setDeleteConfirm({ open: true, row, loading: false });
+  }
+
+  async function confirmDeleteUser() {
+    if (!deleteConfirm.row) return;
+    setDeleteConfirm((s) => ({ ...s, loading: true }));
+    try {
+      const userId = deleteConfirm.row.id;
+      await api.patch(`/admin/users/${userId}`, { status: "deleted" });
+      const policiesToDetach = availablePolicies.filter((p) => Number(p.user_id) === Number(userId));
+      if (policiesToDetach.length > 0) {
+        await Promise.all(
+          policiesToDetach.map((p) => api.patch(`/admin/policies/${p.id}`, { user_id: null }))
+        );
+      }
+      await fetchUsers();
+      await fetchPoliciesList();
+      setDeleteConfirm({ open: false, row: null, loading: false });
+      if (manageModal.row?.id === userId) closeManage();
+      if (expandedUserId === userId) {
+        setExpandedUserId(null);
+        setInlineDraft(null);
+      }
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo eliminar.");
+      setDeleteConfirm((s) => ({ ...s, loading: false }));
+    }
+  }
+
+  function closeDeleteConfirm() {
+    if (deleteConfirm.loading) return;
+    setDeleteConfirm({ open: false, row: null, loading: false });
+  }
+
+  async function restoreUser(id) {
+    try {
+      await api.patch(`/admin/users/${id}`, { status: "active" });
+      await fetchUsers();
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo recuperar el usuario.");
+    }
+  }
+
+  const { activeUsers, archivedUsers } = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    const matchTerm = (r) => {
+      const name = `${r.first_name || ""} ${r.last_name || ""}`.toLowerCase();
+      return (
+        !term ||
+        r.email?.toLowerCase().includes(term) ||
+        (r.dni || "").toString().toLowerCase().includes(term) ||
+        name.includes(term)
+      );
+    };
+    const actives = rows.filter((r) => {
+      if (r.status === "deleted") return false;
+      const matchesTerm = matchTerm(r);
+      const matchesStatus = !statusFilter || r.status === statusFilter;
+      return matchesTerm && matchesStatus;
+    });
+    const archived = rows.filter((r) => r.status === "deleted" && matchTerm(r));
+    return { activeUsers: actives, archivedUsers: archived };
+  }, [rows, q, statusFilter]);
+  const pageCount = useMemo(
+    () => Math.max(1, Math.ceil((activeUsers.length || 1) / PAGE_SIZE)),
+    [activeUsers.length]
+  );
+  const paginatedActive = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return activeUsers.slice(start, start + PAGE_SIZE);
+  }, [activeUsers, page]);
 
   return (
-    <section className="section container">
+    <section className="section container policies-page users-page">
       <header className="admin__head">
         <div>
           <h1>Usuarios</h1>
-          <p className="muted">Crear, editar, eliminar y asociar pólizas a clientes.</p>
         </div>
-        <div style={{ marginLeft: "auto" }}>
+        <div className="ml-auto align-self-center">
           <button className="btn btn--primary" onClick={openCreate}>Nuevo usuario</button>
         </div>
       </header>
 
-      {err && <div className="register-alert">{err}</div>}
-
       <div className="card-like">
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr>
-              <th>Email</th><th>DNI</th><th>Nombre</th><th>Fecha nac.</th><th style={{width:260}}>Acciones</th>
-            </tr></thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={5}>Cargando…</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td colSpan={5}>Sin resultados.</td></tr>
-              ) : rows.map(r => (
-                <tr key={r.id}>
-                  <td>{r.email}</td>
-                  <td>{r.dni || "—"}</td>
-                  <td>{`${r.first_name || ""} ${r.last_name || ""}`.trim() || "—"}</td>
-                  <td>{r.dob || "—"}</td>
-                  <td>
-                    <div className="row-actions">
-                      <button className="btn btn--outline" onClick={() => openAssociate(r)}>Asociar póliza</button>
-                      <button className="btn btn--outline" onClick={() => openEdit(r)}>Editar</button>
-                      <button className="btn btn--outline" onClick={() => onDelete(r)}>Eliminar</button>
+
+        {err && <div className="register-alert mb-8">{err}</div>}
+
+        <div className="pagination pagination--enhanced">
+          <select
+            className="status-filter"
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          >
+            <option value="">Todos</option>
+            <option value="active">Activos</option>
+            <option value="inactive">Inactivos</option>
+          </select>
+          <input
+            className="admin__search"
+            placeholder="Buscar por email, DNI o nombre…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className="pagination__controls">
+            <button className="btn btn--outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+              Anterior
+            </button>
+            <span className="muted">Página {page} de {pageCount}</span>
+            <button className="btn btn--outline" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount}>
+              Siguiente
+            </button>
+          </div>
+        </div>
+        {!compact && (
+          <div className="table-wrap">
+            <table className="table policies-table">
+              <thead><tr>
+                <th>Email</th><th>DNI</th><th>Nombre</th><th>Estado</th><th>Fecha nac.</th><th>Teléfono</th><th className="actions-col" aria-label="Acciones"></th>
+              </tr></thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={7}>Cargando…</td></tr>
+                ) : activeUsers.length === 0 ? (
+                  <tr><td colSpan={7}>Sin resultados.</td></tr>
+                ) : paginatedActive.map(r => (
+                  <tr key={r.id}>
+                    <td>{r.email}</td>
+                    <td>{r.dni || "—"}</td>
+                    <td>{`${r.first_name || ""} ${r.last_name || ""}`.trim() || "—"}</td>
+                    <td>
+                      <span className={`badge badge--status ${statusClass(r.status)}`}>
+                        {r.status || "—"}
+                      </span>
+                    </td>
+                    <td>{r.dob || "—"}</td>
+                    <td>{r.phone || "—"}</td>
+                    <td>
+                      <div className="row-actions">
+                        <button className="btn btn--outline btn--icon" onClick={() => openManage(r)} aria-label="Gestionar usuario">
+                          Gestionar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {compact && !loading && activeUsers.length > 0 && (
+          <div className="compact-list">
+            {paginatedActive.map((r) => (
+              <div className="compact-item" key={r.id}>
+                <div className="compact-main">
+                  <div className="compact-text">
+                    <div className="compact-title-row">
+                      <p className="compact-title">{r.email}</p>
+                      <span className={`badge badge--status ${statusClass(r.status)}`}>
+                        {r.status || "—"}
+                      </span>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <p className="compact-sub">
+                      {`${r.first_name || ""} ${r.last_name || ""}`.trim() || "Sin nombre"}
+                    </p>
+                  </div>
+                  <button className="compact-toggle" onClick={() => openInline(r)} aria-label="Gestionar">
+                    {expandedUserId === r.id ? "–" : "+"}
+                  </button>
+                </div>
+                {expandedUserId === r.id && inlineDraft && (
+                  <div className="compact-details">
+                    <div className="detail-row">
+                      <div className="detail-label">Estado</div>
+                      <select className="detail-input" value={inlineDraft.status} onChange={(e)=>updateInline("status", e.target.value)}>
+                        <option value="active">Activo</option>
+                        <option value="inactive">Inactivo</option>
+                      </select>
+                    </div>
+                    <div className="detail-row">
+                      <div className="detail-label">Email</div>
+                      <input className="detail-input" value={inlineDraft.email} onChange={(e)=>updateInline("email", e.target.value)} />
+                    </div>
+                    <div className="detail-row">
+                      <div className="detail-label">DNI</div>
+                      <input className="detail-input" value={inlineDraft.dni} onChange={(e)=>updateInline("dni", e.target.value)} />
+                    </div>
+                    <div className="detail-row">
+                      <div className="detail-label">Nombre</div>
+                      <input className="detail-input" value={inlineDraft.first_name} onChange={(e)=>updateInline("first_name", e.target.value)} />
+                    </div>
+                    <div className="detail-row">
+                      <div className="detail-label">Apellido</div>
+                      <input className="detail-input" value={inlineDraft.last_name} onChange={(e)=>updateInline("last_name", e.target.value)} />
+                    </div>
+                    <div className="detail-row">
+                      <div className="detail-label">Fecha nac.</div>
+                      <input className="detail-input" type="date" value={inlineDraft.dob} onChange={(e)=>updateInline("dob", e.target.value)} />
+                    </div>
+                    <div className="detail-row">
+                      <div className="detail-label">Teléfono</div>
+                      <input className="detail-input" value={inlineDraft.phone} onChange={(e)=>updateInline("phone", e.target.value)} />
+                    </div>
+                    <div className="compact-actions-inline">
+                      <button className="btn btn--danger" onClick={() => askDeleteUser(r)} disabled={inlineSaving}>Eliminar</button>
+                      <button className="btn btn--primary" onClick={saveInline} disabled={inlineSaving}>Guardar cambios</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {compact && !loading && activeUsers.length === 0 && (
+          <p className="muted">Sin resultados.</p>
+        )}
+        <div className={`pagination pagination--enhanced ${compact ? "pagination--center" : "pagination--end"}`}>
+          <div className={`pagination__controls ${compact ? "pagination__controls--center" : ""}`}>
+            <button className="btn btn--outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+              Anterior
+            </button>
+            <span className="muted">Página {page} de {pageCount}</span>
+            <button className="btn btn--outline" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount}>
+              Siguiente
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Drawer crear/editar */}
-      {drawerOpen && (
-        <div className="drawer">
-          <div className="drawer__panel" style={{maxWidth:520}}>
-            <div className="drawer__head">
-              <h2>{editing ? "Editar usuario" : "Nuevo usuario"}</h2>
-              <button className="btn btn--outline" onClick={()=>setDrawerOpen(false)}>Cerrar</button>
-            </div>
-            <form className="form" onSubmit={onSave}>
-              <div className="grid">
-                <div className="field"><label>Email</label><input type="email" value={draft.email} onChange={(e)=>setDraft(d=>({...d,email:e.target.value}))} required/></div>
-                <div className="field"><label>DNI</label><input value={draft.dni} onChange={(e)=>setDraft(d=>({...d,dni:e.target.value}))}/></div>
-                <div className="field"><label>Nombre</label><input value={draft.first_name} onChange={(e)=>setDraft(d=>({...d,first_name:e.target.value}))}/></div>
-                <div className="field"><label>Apellido</label><input value={draft.last_name} onChange={(e)=>setDraft(d=>({...d,last_name:e.target.value}))}/></div>
-                <div className="field"><label>Fecha de nacimiento</label><input type="date" value={draft.dob} onChange={(e)=>setDraft(d=>({...d,dob:e.target.value}))}/></div>
-              </div>
-              <div className="actions">
-                <button className="btn btn--primary" type="submit">Guardar</button>
-                <button className="btn btn--outline" type="button" onClick={()=>setDrawerOpen(false)}>Cancelar</button>
-              </div>
-            </form>
+      <div className="card-like recovery-card">
+        <div className="admin__head admin__head--tight">
+          <div className="recovery-head">
+            <h3 className="heading-tight m-0">Usuarios eliminados</h3>
           </div>
-          <div className="drawer__scrim" onClick={()=>setDrawerOpen(false)}/>
+          <button type="button" className="btn btn--subtle" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived ? "Ocultar" : "Ver lista"}
+          </button>
+        </div>
+        {showArchived && (
+          archivedUsers.length === 0 ? (
+            <p className="muted">No hay usuarios inactivos.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table policies-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>DNI</th>
+                    <th>Nombre</th>
+                    <th>Estado</th>
+                    <th>Teléfono</th>
+                    <th className="actions-col" aria-label="Acciones"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {archivedUsers.map((u) => (
+                    <tr key={`arch-user-${u.id}`}>
+                      <td>{u.email}</td>
+                      <td>{u.dni || "—"}</td>
+                      <td>{`${u.first_name || ""} ${u.last_name || ""}`.trim() || "—"}</td>
+                      <td>
+                        <span className={`badge badge--status ${statusClass(u.status)}`}>
+                          {u.status || "—"}
+                        </span>
+                      </td>
+                      <td>{u.phone || "—"}</td>
+                      <td>
+                        <div className="row-actions">
+                          <button className="btn btn--outline" onClick={() => restoreUser(u.id)}>Recuperar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+      </div>
+
+      {/* Modal gestionar usuario */}
+      {manageModal.open && manageModal.draft && (
+        <div className="drawer drawer--modal">
+          <div className="drawer__panel manage-modal">
+            <div className="drawer__head">
+              <h2>Gestionar usuario</h2>
+              <button className="drawer__close" aria-label="Cerrar" onClick={closeManage}>&times;</button>
+            </div>
+            <div className="detail-list">
+              <div className="detail-row">
+                <div className="detail-label">Estado</div>
+                <select
+                  className="detail-input"
+                  value={manageModal.draft.status}
+                  onChange={(e)=>updateManage("status", e.target.value)}
+                >
+                  <option value="active">Activo</option>
+                  <option value="inactive">Inactivo</option>
+                </select>
+              </div>
+              <div className="detail-row">
+                <div className="detail-label">Email</div>
+                <input className="detail-input" type="email" value={manageModal.draft.email} onChange={(e)=>updateManage("email", e.target.value)} />
+              </div>
+              <div className="detail-row">
+                <div className="detail-label">DNI</div>
+                <input className="detail-input" value={manageModal.draft.dni} onChange={(e)=>updateManage("dni", e.target.value)} />
+              </div>
+              <div className="detail-row">
+                <div className="detail-label">Nombre</div>
+                <input className="detail-input" value={manageModal.draft.first_name} onChange={(e)=>updateManage("first_name", e.target.value)} />
+              </div>
+              <div className="detail-row">
+                <div className="detail-label">Apellido</div>
+                <input className="detail-input" value={manageModal.draft.last_name} onChange={(e)=>updateManage("last_name", e.target.value)} />
+              </div>
+              <div className="detail-row">
+                <div className="detail-label">Fecha nac.</div>
+                <input className="detail-input" type="date" value={manageModal.draft.dob} onChange={(e)=>updateManage("dob", e.target.value)} />
+              </div>
+              <div className="detail-row">
+                <div className="detail-label">Teléfono</div>
+                <input className="detail-input" value={manageModal.draft.phone} onChange={(e)=>updateManage("phone", e.target.value)} />
+              </div>
+              <div className="detail-row">
+                <div className="detail-label">Pólizas</div>
+                {assignedPolicies.length === 0 && <p className="muted m-0">Sin pólizas asignadas.</p>}
+                {assignedPolicies.length > 0 && (
+                  <div className="detail-value policy-chips">
+                    {assignedPolicies.map((p) => (
+                      <span key={`assigned-${p.id}`} className="policy-chip">
+                        <span className="policy-chip__text">
+                          {p.number || `#${p.id}`} {p.vehicle?.plate ? `— ${p.vehicle.plate}` : ""}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn--icon policy-chip__remove"
+                          onClick={() => removePolicyFromDraft(p.id)}
+                          aria-label={`Quitar póliza ${p.number || p.id}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="detail-row">
+                <div className="detail-label">Agregar por número</div>
+                <input
+                  className="detail-input"
+                  placeholder="Buscar por número o patente"
+                  value={manualPoliciesInput}
+                  onChange={(e) => setManualPoliciesInput(e.target.value)}
+                />
+                <small className="muted">Escribí número o patente; verás las pólizas sin usuario para agregar.</small>
+                {manualSuggestions.length > 0 && (
+                  <div className="compact-details compact-details--tight">
+                    <div className="detail-list detail-list--flat">
+                      {manualSuggestions.map((p) => (
+                        <div key={`sugg-${p.id}`} className="detail-row detail-row--compact">
+                          <div className="detail-label">#{p.number || p.id}</div>
+                          <div className="detail-value detail-inline detail-inline--compact">
+                            <span className="muted">{p.vehicle?.plate || "—"}</span>
+                            <button
+                              className="btn btn--subtle"
+                              type="button"
+                              onClick={() => {
+                                setManageModal((m) => {
+                                  const existing = new Set((m.draft?.policies || []).map((id) => Number(id)));
+                                  existing.add(Number(p.id));
+                                  return { ...m, draft: { ...m.draft, policies: Array.from(existing) } };
+                                });
+                                setManualPoliciesInput("");
+                              }}
+                            >
+                              Agregar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="actions actions--divider actions--spread">
+              {manageModal.row?.id ? (
+                <button
+                  className="btn btn--danger"
+                  onClick={() => { askDeleteUser(manageModal.row); closeManage(); }}
+                  disabled={manageModal.saving}
+                >
+                  Eliminar
+                </button>
+              ) : (
+                <button className="btn btn--outline" onClick={closeManage} disabled={manageModal.saving}>Cancelar</button>
+              )}
+              <button className="btn btn--primary" onClick={saveManage} disabled={manageModal.saving}>
+                {manageModal.saving ? "Guardando…" : "Guardar"}
+              </button>
+            </div>
+          </div>
+          <div className="drawer__scrim" onClick={closeManage} />
         </div>
       )}
 
-      {/* Modal asociar póliza */}
-      {assocOpen && (
-        <div className="drawer">
-          <div className="drawer__panel" style={{maxWidth:520}}>
+      {/* Confirmación de eliminación */}
+      {deleteConfirm.open && (
+        <div className="drawer drawer--modal">
+          <div className="drawer__panel drawer__panel--small">
             <div className="drawer__head">
-              <h2>Asociar póliza a {assocTarget?.email}</h2>
-              <button className="btn btn--outline" onClick={()=>setAssocOpen(false)}>Cerrar</button>
+              <h2>Eliminar usuario</h2>
+              <button className="drawer__close" onClick={closeDeleteConfirm} aria-label="Cerrar">
+                &times;
+              </button>
             </div>
-            <div className="form">
-              <div className="field">
-                <label>Póliza sin usuario</label>
-                <select value={selectedPolicy} onChange={(e)=>setSelectedPolicy(e.target.value)}>
-                  <option value="">Elegí una póliza</option>
-                  {availablePolicies.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.number || `#${p.id}`} — {p.vehicle?.plate || "sin patente"}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="actions">
-                <button className="btn btn--primary" onClick={confirmAssociate} disabled={!selectedPolicy}>Asociar</button>
-                <button className="btn btn--outline" onClick={()=>setAssocOpen(false)}>Cancelar</button>
-              </div>
+            <p>
+              ¿Seguro que querés eliminar el usuario{" "}
+              <strong>{deleteConfirm.row?.email || deleteConfirm.row?.id}</strong>?
+              Se marcará como inactivo y podrás recuperarlo luego.
+              {deleteConfirmPolicies.length > 0 && (
+                <>
+                  {" "}
+                  Tiene {deleteConfirmPolicies.length} póliza(s) asignada(s); quedarán sin usuario asociado.
+                </>
+              )}
+            </p>
+            <div className="actions">
+              <button className="btn btn--outline" onClick={closeDeleteConfirm} disabled={deleteConfirm.loading}>
+                Cancelar
+              </button>
+              <button className="btn btn--danger" onClick={confirmDeleteUser} disabled={deleteConfirm.loading}>
+                {deleteConfirm.loading ? "Eliminando…" : "Eliminar"}
+              </button>
             </div>
           </div>
-          <div className="drawer__scrim" onClick={()=>setAssocOpen(false)}/>
+          <div className="drawer__scrim" onClick={closeDeleteConfirm} />
         </div>
       )}
     </section>

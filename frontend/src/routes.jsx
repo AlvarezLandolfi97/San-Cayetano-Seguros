@@ -75,6 +75,7 @@ export default function AppRoutes() {
           {/* Públicas */}
           <Route path="/" element={<Home />} />
           <Route path="/quote" element={<Quote />} />
+          <Route path="/quote/share/:id" element={<QuoteShare />} />
           <Route path="/quote/share" element={<QuoteShare />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />

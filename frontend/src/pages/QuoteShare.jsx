@@ -1,25 +1,52 @@
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
+import { fetchQuoteShare } from "@/services/quoteShare";
 import "@/styles/QuoteShare.css";
 
 export default function QuoteShare() {
+  const { id } = useParams();
   const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const hash = useMemo(() => decodeURIComponent(location.hash?.slice(1) || ""), []);
+  const legacyHash = useMemo(
+    () => (!id ? decodeURIComponent(location.hash?.slice(1) || "") : ""),
+    [id]
+  );
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
+      setLoading(true);
+      setError("");
+      setData(null);
       try {
-        if (!hash) throw new Error("No se encontró información en el enlace.");
-        const { decompressFromEncodedURIComponent } = await import("lz-string");
-        const json = decompressFromEncodedURIComponent(hash);
-        if (!json) throw new Error("No se pudo leer la información (enlace inválido o corrupto).");
-        setData(JSON.parse(json));
+        if (id) {
+          const res = await fetchQuoteShare(id);
+          if (!cancelled) setData(res);
+        } else if (legacyHash) {
+          const { decompressFromEncodedURIComponent } = await import("lz-string");
+          const json = decompressFromEncodedURIComponent(legacyHash);
+          if (!json) throw new Error("No se pudo leer la información (enlace inválido o corrupto).");
+          if (!cancelled) setData(JSON.parse(json));
+        } else {
+          throw new Error("No se encontró información en el enlace.");
+        }
       } catch (e) {
-        setError(e.message || "Error al leer la información.");
+        if (!cancelled) {
+          const apiMsg = e?.response?.data?.detail || e?.response?.data?.error;
+          const status = e?.response?.status;
+          const friendly404 = status === 404 ? "La ficha no existe o ya no está disponible." : null;
+          setError(friendly404 || apiMsg || e.message || "Error al leer la información.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [hash]);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, legacyHash]);
 
   if (error) {
     return (
@@ -30,7 +57,7 @@ export default function QuoteShare() {
     );
   }
 
-  if (!data) {
+  if (loading || !data) {
     return (
       <main className="section container">
         <h1>Ficha de cotización</h1>

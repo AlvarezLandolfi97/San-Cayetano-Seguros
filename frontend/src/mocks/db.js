@@ -179,7 +179,7 @@ export const db = {
       premium: 15000,
       start_date: "2024-11-20",   // vence dentro de 12 días
       end_date: "2025-11-20",
-      status: "active",
+      status: "inactive",
       claim_code: "VINCULA-105",
     },
   ],

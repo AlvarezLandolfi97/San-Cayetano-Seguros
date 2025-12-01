@@ -1,9 +1,12 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions, throttling
-from .serializers import QuoteInputSerializer
-from products.models import Product
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
+from .serializers import QuoteInputSerializer, QuoteShareCreateSerializer, QuoteShareSerializer
+from .models import QuoteShare
+from products.models import Product
 
 
 class QuoteView(APIView):
@@ -44,3 +47,25 @@ class QuoteView(APIView):
             })
 
         return Response({'plans': result}, status=status.HTTP_200_OK)
+
+
+class QuoteShareCreateView(APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []  # ignora tokens inválidos/expirados
+    throttle_scope = "quotes"
+
+    def post(self, request):
+        serializer = QuoteShareCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        obj = serializer.save()
+        return Response({"id": obj.token}, status=status.HTTP_201_CREATED)
+
+
+class QuoteShareDetailView(APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token):
+        obj = get_object_or_404(QuoteShare, token=token)
+        data = QuoteShareSerializer(obj, context={"request": request}).data
+        return Response(data, status=status.HTTP_200_OK)

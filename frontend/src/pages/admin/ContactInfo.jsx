@@ -53,28 +53,22 @@ export default function ContactInfoAdmin() {
   const mapSrc = draft.map_embed_url || "";
 
   return (
-    <section className="section container">
+    <section className="section container policies-page">
       <header className="admin__head">
         <div>
           <h1>Contacto</h1>
-          <p className="muted">Editá los datos que se muestran en la sección de contacto del Home.</p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button className="btn btn--subtle" type="button" onClick={loadData} disabled={loading || saving}>
-            Recargar
-          </button>
-          <button className="btn btn--primary" type="submit" form="contact-form" disabled={saving}>
-            {saving ? "Guardando…" : "Guardar cambios"}
-          </button>
-        </div>
+        <button className="btn btn--primary align-self-center" type="submit" form="contact-form" disabled={saving}>
+          {saving ? "Guardando…" : "Guardar cambios"}
+        </button>
       </header>
 
-      {err && <div className="register-alert" style={{ marginBottom: 12 }}>{err}</div>}
-      {savedMsg && <div className="register-alert" style={{ borderColor: "#bbf7d0", background: "#f0fdf4", color: "#166534" }}>{savedMsg}</div>}
+      {err && <div className="register-alert mt-8">{err}</div>}
+      {savedMsg && <div className="register-alert alert--success">{savedMsg}</div>}
 
       <div className="card-like">
         <form className="form" id="contact-form" onSubmit={onSave}>
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
+          <div className="grid admin-grid--auto-240">
             <div className="field">
               <label>WhatsApp</label>
               <input
@@ -106,8 +100,8 @@ export default function ContactInfoAdmin() {
             />
           </div>
 
-          <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div className="field" style={{ gridColumn: "1 / -1" }}>
+          <div className="grid admin-grid--two">
+            <div className="field grid-span-full">
               <label>Horario de atención</label>
               <input
                 value={draft.schedule}
@@ -117,7 +111,7 @@ export default function ContactInfoAdmin() {
               />
             </div>
 
-            <div className="field" style={{ gridColumn: "1 / -1" }}>
+            <div className="field grid-span-full">
               <label>URL de mapa (iframe src de Google Maps)</label>
               <textarea
                 rows={3}
@@ -128,20 +122,20 @@ export default function ContactInfoAdmin() {
               <small className="muted">Pega solo el valor del atributo <code>src</code> del iframe.</small>
             </div>
 
-            <div className="field" style={{ gridColumn: "1 / -1" }}>
+            <div className="field grid-span-full">
               <label>Vista previa del mapa</label>
-              <div style={{ border: "1px solid #e6ecf5", borderRadius: 10, overflow: "hidden", minHeight: 220, background: "#f8fbff" }}>
+              <div className="contact-map">
                 {mapSrc ? (
                   <iframe
                     title="Vista previa mapa"
                     src={mapSrc}
-                    style={{ width: "100%", height: 260, border: "0" }}
+                    className="contact-map__iframe"
                     allowFullScreen
                     loading="lazy"
                     referrerPolicy="no-referrer-when-downgrade"
                   />
                 ) : (
-                  <div style={{ padding: 16, color: "#6b7280" }}>
+                  <div className="contact-map__placeholder">
                     Ingresá un iframe src de Google Maps para previsualizarlo.
                   </div>
                 )}

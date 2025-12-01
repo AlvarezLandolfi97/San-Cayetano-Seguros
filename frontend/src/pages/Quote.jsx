@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { buildWhatsAppLink, cleanPhone } from "@/utils/wa";
+import { saveQuoteShare } from "@/services/quoteShare";
 import { fetchRemoteMakes, fetchRemoteModels, fetchRemoteVersions } from "@/services/vehicleApi";
 import "@/styles/Quote.module.css";
 
@@ -329,14 +330,14 @@ export default function Quote() {
   }
 
   async function buildShareLink() {
-    // 1) Reducir y serializar imágenes
+    // 1) Reducir y serializar imágenes (se guardan en backend)
     const photos = {
       front: await fileToResizedDataURL(files.front),
       back:  await fileToResizedDataURL(files.back),
       right: await fileToResizedDataURL(files.right),
       left:  await fileToResizedDataURL(files.left),
     };
-    // 2) Armar payload
+    // 2) Armar payload y persistir
     const payload = {
       plan_code: form.plan_code || undefined,
       plan_name: form.plan_name || undefined,
@@ -344,7 +345,7 @@ export default function Quote() {
       make: form.make,
       model: form.model,
       version: form.version,
-      year: form.year,
+      year: Number(form.year),
       city: form.city,
       has_garage: form.has_garage === "si",
       is_zero_km: form.is_zero_km === "si",
@@ -353,10 +354,9 @@ export default function Quote() {
       gnc_amount: form.has_gnc === "si" ? String(form.gnc_amount).replace(",", ".") : undefined,
       photos,
     };
-    // 3) Comprimir en hash con lz-string (carga on-demand)
-    const { compressToEncodedURIComponent } = await import("lz-string");
-    const encoded = compressToEncodedURIComponent(JSON.stringify(payload));
-    return `${location.origin}/quote/share#${encoded}`;
+    const { id } = await saveQuoteShare(payload);
+    const origin = (typeof location !== "undefined" && location.origin) ? location.origin.replace(/\/$/, "") : "";
+    return `${origin}/quote/share/${id}`;
   }
 
   async function shareQuote() {
@@ -400,6 +400,10 @@ export default function Quote() {
     try {
       await shareQuote();
       setSent(true);
+    } catch (e) {
+      const apiMsg = e?.response?.data?.detail || e?.response?.data?.error;
+      const fallback = e?.message || "No se pudo generar el link. Intentalo nuevamente.";
+      setErr(apiMsg || fallback);
     } finally {
       setBusy(false);
     }
