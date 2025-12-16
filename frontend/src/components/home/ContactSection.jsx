@@ -16,7 +16,8 @@ export default function ContactSection() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get("/api/common/contact-info/");
+        // Base URL ya incluye /api
+        const { data } = await api.get("/common/contact-info/");
         setContact({ ...FALLBACK, ...data });
       } catch {
         setContact(FALLBACK);

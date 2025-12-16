@@ -3,8 +3,11 @@ import { api } from "@/api";
 import "./announcementbar.css";
 
 export default function AnnouncementBar() {
+  const enabled = import.meta.env.VITE_ENABLE_ANNOUNCEMENTS === "true";
   const [items, setItems] = useState([]);
   const [dismissed, setDismissed] = useState({});
+
+  if (!enabled) return null;
 
   useEffect(()=>{
     (async ()=>{

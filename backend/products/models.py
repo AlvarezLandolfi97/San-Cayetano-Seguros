@@ -4,7 +4,10 @@ class Product(models.Model):
     VEHICLE_TYPES = (('AUTO','Auto'), ('MOTO','Moto'), ('COM','Comercial'))
     PLAN_TYPES = (('RC','Responsabilidad Civil'), ('TC','Terceros Completo'), ('TR','Todo Riesgo'))
 
-    name = models.CharField(max_length=80)
+    code = models.CharField(max_length=30, unique=True, null=True, blank=True)
+    name = models.CharField(max_length=120)
+    subtitle = models.CharField(max_length=200, blank=True)
+    bullets = models.JSONField(default=list, blank=True)
     vehicle_type = models.CharField(max_length=5, choices=VEHICLE_TYPES)
     plan_type = models.CharField(max_length=2, choices=PLAN_TYPES)
     min_year = models.PositiveIntegerField(default=1995)
@@ -13,6 +16,7 @@ class Product(models.Model):
     franchise = models.CharField(max_length=80, blank=True)
     coverages = models.TextField(help_text='Lista de coberturas en markdown')
     published_home = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.name} ({self.get_plan_type_display()})"

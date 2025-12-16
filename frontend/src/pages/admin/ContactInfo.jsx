@@ -21,7 +21,8 @@ export default function ContactInfoAdmin() {
     setErr("");
     setSavedMsg("");
     try {
-      const { data } = await api.get("/api/common/contact-info/");
+      // El baseURL ya incluye /api
+      const { data } = await api.get("/common/contact-info/");
       setDraft({ ...EMPTY, ...(data || {}) });
     } catch (e) {
       setErr(e?.response?.data?.detail || "No se pudo cargar la información de contacto.");
@@ -41,7 +42,7 @@ export default function ContactInfoAdmin() {
     setErr("");
     setSavedMsg("");
     try {
-      await api.patch("/api/common/contact-info/", draft);
+      await api.patch("/common/contact-info/", draft);
       setSavedMsg("Información actualizada correctamente.");
     } catch (e2) {
       setErr(e2?.response?.data?.detail || "No se pudo guardar. Reintentá en unos segundos.");

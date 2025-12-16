@@ -1,8 +1,28 @@
 from rest_framework import serializers
-from .models import ContactInfo
+from .models import ContactInfo, AppSettings, Announcement
 
 
 class ContactInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContactInfo
         fields = ("whatsapp", "email", "address", "map_embed_url", "schedule", "updated_at")
+
+
+class AppSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AppSettings
+        fields = (
+            "expiring_threshold_days",
+            "client_expiration_offset_days",
+            "default_term_months",
+            "payment_window_days",
+            "price_update_offset_days",
+            "price_update_every_months",
+            "updated_at",
+        )
+
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Announcement
+        fields = ("id", "title", "message", "link", "is_active", "order", "created_at", "updated_at")

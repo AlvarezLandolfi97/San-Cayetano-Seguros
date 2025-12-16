@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "policies",
     "payments",
     "quotes",
+    "core",
 ]
 
 # === MIDDLEWARE ===
@@ -80,9 +81,8 @@ _frontend_env = os.getenv("FRONTEND_ORIGINS") or os.getenv(
 CORS_ALLOWED_ORIGINS = [o.strip() for o in _frontend_env.split(",") if o.strip()]
 CORS_ALLOW_CREDENTIALS = _bool(os.getenv("CORS_ALLOW_CREDENTIALS"), False)
 
-# En dev: si no hay orígenes declarados, permite todos
-if DEBUG and not CORS_ALLOWED_ORIGINS:
-    CORS_ALLOWED_ORIGINS = []
+# En dev liberamos CORS para evitar bloqueos en localhost
+if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
 else:
     CORS_ALLOW_ALL_ORIGINS = False
@@ -147,11 +147,11 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    "DEFAULT_PERMISSION_CLASSES": (
+    "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny"
         if DEBUG
         else "rest_framework.permissions.IsAuthenticated"
-    ),
+    ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": int(os.getenv("API_PAGE_SIZE", "10")),
 }
@@ -193,6 +193,19 @@ RECEIPT_TEMPLATE_PDF = os.getenv(
     str(BASE_DIR / "static" / "receipts" / "COMPROBANTE.pdf"),
 )
 RECEIPT_DEBUG_GRID = _bool(os.getenv("RECEIPT_DEBUG_GRID"), False)
+
+# === EMAIL ===
+EMAIL_BACKEND = os.getenv(
+    "DJANGO_EMAIL_BACKEND",
+    os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"),
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = _bool(os.getenv("EMAIL_USE_TLS"), True)
+EMAIL_USE_SSL = _bool(os.getenv("EMAIL_USE_SSL"), False)
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@sancayetano.local")
 
 
 # === LOGGING BÁSICO ===

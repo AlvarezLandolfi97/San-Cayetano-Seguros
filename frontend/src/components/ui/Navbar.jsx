@@ -29,7 +29,7 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
 
@@ -239,30 +239,11 @@ export default function Navbar() {
                 </li>
 
                 {isLoggedIn ? (
-                  <>
-                    <li className="nav__cta">
-                      <NavLink
-                        to="/dashboard/seguro"
-                        className={
-                          isActive("panel")
-                            ? "btn btn--secondary is-active"
-                            : "btn btn--secondary"
-                        }
-                      >
-                        Mi panel
-                      </NavLink>
-                    </li>
-                    <li>
-                      <button
-                        onClick={() => {
-                          logout();
-                        }}
-                        className="btn btn--secondary"
-                      >
-                        Cerrar sesión
-                      </button>
-                    </li>
-                  </>
+                  <li>
+                    <NavLink to="/dashboard/seguro" className={linkClass("panel")}>
+                      Mi panel
+                    </NavLink>
+                  </li>
                 ) : (
                   <li className="nav__cta">
                     <NavLink
@@ -292,16 +273,6 @@ export default function Navbar() {
                   <NavLink to="/admin" className={linkClass("admin")}>
                     Admin
                   </NavLink>
-                </li>
-                <li>
-                  <button
-                    onClick={() => {
-                      logout();
-                    }}
-                    className="btn btn--secondary"
-                  >
-                    Cerrar sesión
-                  </button>
                 </li>
               </>
             )}

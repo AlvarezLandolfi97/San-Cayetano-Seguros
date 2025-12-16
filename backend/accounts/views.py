@@ -7,6 +7,7 @@ from .serializers import UserSerializer
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("-id")
     serializer_class = UserSerializer
+    pagination_class = None  # el admin recibe todos los usuarios sin paginación
 
     def get_permissions(self):
         """
@@ -19,14 +20,14 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @decorators.action(
         detail=False,
-        methods=["get", "patch"],
+        methods=["get", "patch", "put"],
         url_path="me",
         permission_classes=[permissions.IsAuthenticated],
     )
     def me(self, request):
         """
         GET  → devuelve los datos del usuario autenticado.
-        PATCH → permite actualizar parcialmente su perfil.
+        PATCH/PUT → permite actualizar parcialmente su perfil.
         """
         user = request.user
 
@@ -34,7 +35,7 @@ class UserViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(user)
             return response.Response(serializer.data)
 
-        # PATCH (actualización parcial)
+        # PATCH/PUT (actualización parcial o total, pero tratamos como parcial)
         serializer = self.get_serializer(user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()

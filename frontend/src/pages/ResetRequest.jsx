@@ -18,11 +18,13 @@ export default function ResetRequest() {
 
     try {
       setLoading(true);
-      await api.post("/auth/password/reset", { email: email.trim() });
-      setSent(true); // No mostramos si existe o no; siempre éxito.
-    } catch (e2) {
-      // Por seguridad, también mostramos éxito aunque el backend retorne 200 de todos modos.
+      const { data } = await api.post("/auth/password/reset", { email: email.trim() });
       setSent(true);
+      if (data?.detail) setErr("");
+    } catch (e2) {
+      const msg = e2?.response?.data?.detail || "No pudimos enviar el correo. Revisá el email ingresado.";
+      setErr(msg);
+      setSent(false);
     } finally {
       setLoading(false);
     }
@@ -38,7 +40,7 @@ export default function ResetRequest() {
 
         {sent ? (
           <div className="reset-success" role="status" aria-live="polite">
-            Si el correo existe, vas a recibir un email con instrucciones.
+            Te enviamos un email con instrucciones para restablecer tu contraseña.
           </div>
         ) : (
           err && (

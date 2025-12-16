@@ -5,9 +5,14 @@ import { api } from "../api";
  * El backend actual puede devolver:
  *  - { mp_preference_id, payment_id }  (sin init_point)
  *  - { preference_id, init_point, payment_id }  (ideal)
+ * @param {number|string} policyId - id de la póliza
+ * @param {string|null} period - AAAAMM (ej: 202503)
+ * @param {Array<number>|null} chargeIds - ids de cargos pendientes (opcional, para que el backend use su monto)
  */
-export async function createPreference(policyId, period) {
-  const { data } = await api.post(`/payments/policies/${policyId}/create_preference`, { period });
+export async function createPreference(policyId, period, chargeIds = []) {
+  const payload = { period };
+  if (Array.isArray(chargeIds) && chargeIds.length > 0) payload.charge_ids = chargeIds;
+  const { data } = await api.post(`/payments/policies/${policyId}/create_preference`, payload);
 
   // Normalizamos respuesta
   const preferenceId = data.preference_id || data.mp_preference_id || data.pref_id || null;

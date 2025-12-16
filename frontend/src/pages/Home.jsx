@@ -8,77 +8,50 @@ import ContactSection from "@/components/home/ContactSection";
 import "@/styles/Home.css";
 import { api } from "@/api";
 
-const FALLBACK_PLANS = [
-  {
-    code: "Plan A",
-    name: "Responsabilidad Civil (RC)",
-    features: [
-      "Responsabilidad civil para terceros por lesiones o muerte y daños materiales.",
-    ],
-  },
-  {
-    code: "Plan B",
-    name: "Auto Total",
-    subtitle: "Responsabilidad civil + coberturas totales",
-    features: [
-      "Responsabilidad civil",
-      "Pérdida total por accidente, incendio y robo o hurto",
-    ],
-  },
-  {
-    code: "Plan D",
-    name: "Todo Riesgo",
-    features: [
-      "Responsabilidad civil",
-      "Pérdida total y parcial por accidente, incendio y robo o hurto",
-      "Modalidades con y sin franquicia",
-    ],
-  },
-  {
-    code: "Plan P",
-    name: "Mega Premium",
-    features: [
-      "Responsabilidad civil",
-      "Pérdida total y parcial por accidente, incendio y robo o hurto",
-      "Reposición a nuevo, cristales, cerraduras, cubiertas, GNC sin descuento por antigüedad, etc.",
-    ],
-  },
-];
-
 export default function Home() {
   const [types, setTypes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
     (async () => {
+      setErr("");
+      setTypes([]);
       const normalize = (data = []) =>
-        data.map((it) => ({
-          id: it.id,
-          code: it.code || it.short || it.plan_type || it.id || "",
-          name: it.name || it.title || "",
-          subtitle: it.subtitle || it.tag || it.tagline || "",
-          features: it.features || it.includes || [],
-        }));
+        data.map((it) => {
+          return {
+            id: it.id,
+            code: it.code || it.short || it.plan_type || it.id || "",
+            name: it.name || it.title || "",
+            subtitle: typeof it.subtitle === "string" ? it.subtitle : "",
+            features: Array.isArray(it.features)
+              ? it.features.filter((x) => String(x).trim())
+              : Array.isArray(it.bullets)
+              ? it.bullets.filter((x) => String(x).trim())
+              : [],
+          };
+        });
 
       try {
         // Preferimos productos reales gestionados por el admin
-        const { data } = await api.get("/api/products/home");
-        const list = Array.isArray(data) ? data : [];
+        // Llamamos al backend real (el baseURL ya incluye /api)
+        const { data } = await api.get("/products/home");
+        const list = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
         if (list.length) {
           setTypes(normalize(list));
           return;
         }
         // Fallback alternativo
-        const { data: alt } = await api.get("/api/products/");
-        const listAlt = Array.isArray(alt) ? alt : [];
+        const { data: alt } = await api.get("/products/");
+        const listAlt = Array.isArray(alt) ? alt : Array.isArray(alt?.results) ? alt.results : [];
         if (listAlt.length) {
           setTypes(normalize(listAlt));
           return;
         }
-        setTypes(FALLBACK_PLANS);
+        setErr("No hay seguros publicados todavía.");
       } catch {
-        setTypes(FALLBACK_PLANS);
+        setErr("No se pudieron cargar los seguros. Reintentá en unos segundos.");
       } finally {
         setLoading(false);
       }
@@ -98,6 +71,11 @@ export default function Home() {
       <Hero />
 
       <PlansSection plans={types} loading={loading} onQuote={handleQuote} />
+      {!loading && err && (
+        <div className="container">
+          <p className="muted" style={{ marginTop: 8 }}>{err}</p>
+        </div>
+      )}
       <HowItWorks />
       <ContactSection />
     </main>

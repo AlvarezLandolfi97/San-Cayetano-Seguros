@@ -18,14 +18,26 @@
   scroll-margin-top: 16px;
 }
 :global(.quote-page) {
+  position: relative;
+  z-index: 0; /* permite colocar el pseudo-elemento por detrás */
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 clamp(18px, 4vw, 32px) 24px;
+  background: none;
+}
+:global(.quote-page)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  left: 50%;
+  width: 100vw; /* se extiende de borde a borde del viewport */
+  transform: translateX(-50%);
   background:
     radial-gradient(110% 80% at 10% 10%, rgba(37, 99, 235, 0.12), transparent 45%),
     radial-gradient(90% 70% at 90% 0%, rgba(14, 116, 144, 0.10), transparent 40%),
     #f7f8fa;
+  z-index: -1;
 }
 :global(.quote-page h1) {
   margin-bottom: 6px;
@@ -93,10 +105,10 @@
 
 /* ---------- Formulario ---------- */
 :global(.register-form) {
-  border: 1px solid #e3e8f3;
-  background: #ffffff;
+  border: none;
+  background: transparent;
   border-radius: 12px;
-  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.05);
+  box-shadow: none;
   padding: clamp(18px, 3vw, 24px);
   display: grid;
   gap: 14px;

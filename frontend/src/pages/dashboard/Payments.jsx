@@ -1,13 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { api } from "@/api";
+import { createPreference } from "@/services/payments";
 import ReceiptTicket from "@/components/receipts/ReceiptTicket";
-import "@/styles/Payments.css";
+import "@/pages/dashboard/dashboard.css";
 
 export default function Payments() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [selected, setSelected] = useState(() => new Set());
   const [paying, setPaying] = useState(false);
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const policyRefs = useRef({});
+
+  const statusLabel = (status) =>
+    ({
+      active: "Activa",
+      no_coverage: "Sin cobertura",
+      expired: "Vencida",
+      suspended: "Suspendida",
+      cancelled: "Cancelada",
+      inactive: "Inactiva",
+    }[status] || "—");
+
+  const paymentWindow = (policy) => {
+    const start = policy.payment_start_date;
+    const end = policy.payment_end_date || policy.client_end_date || policy.end_date;
+    if (start && end) return `${start} → ${end}`;
+    if (start) return start;
+    return end || "—";
+  };
 
   useEffect(() => {
     (async () => {
@@ -38,6 +61,20 @@ export default function Payments() {
     })();
   }, []);
 
+  useEffect(() => {
+    const targetId =
+      Number(location.state?.policyId) ||
+      Number(searchParams.get("policy")) ||
+      null;
+    if (!targetId || !rows.length) return;
+    const el = policyRefs.current[targetId];
+    if (el?.scrollIntoView) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("highlighted-policy");
+      setTimeout(() => el.classList.remove("highlighted-policy"), 1800);
+    }
+  }, [location.state?.policyId, searchParams, rows]);
+
   const hasSelection = selected.size > 0;
 
   const totalToPay = useMemo(() => {
@@ -67,45 +104,64 @@ export default function Payments() {
 
   const deselectAll = () => setSelected(new Set());
 
+  const periodFromCharge = (ch) => {
+    const raw = ch?.due_date;
+    const d = raw ? new Date(`${raw}T00:00:00`) : new Date();
+    if (Number.isNaN(d.getTime())) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    return `${y}${m}`;
+  };
+
   const paySelected = async () => {
     if (!hasSelection) return;
+    const selections = [];
+    rows.forEach(({ policy, pending }) => {
+      const ch = pending[0];
+      if (ch && selected.has(ch.id)) {
+        selections.push({
+          policyId: policy.id,
+          chargeId: ch.id,
+          period: periodFromCharge(ch),
+        });
+      }
+    });
+    if (!selections.length) return;
     try {
       setPaying(true);
-      const ids = Array.from(selected);
-      const { data } = await api.post("/payments/mp/preference", {
-        charge_ids: ids,
-      });
-      if (data?.init_point) window.open(data.init_point, "_blank", "noopener,noreferrer");
-      setSelected(new Set());
-      const refreshed = await Promise.all(
+      for (const sel of selections) {
+        const { initPoint } = await createPreference(
+          sel.policyId,
+          sel.period,
+          sel.chargeId ? [sel.chargeId] : []
+        );
+        if (initPoint) window.open(initPoint, "_blank", "noopener,noreferrer");
+      }
+      await Promise.all(
         rows.map(async (row) => {
           const pendRes = await api.get(`/payments/pending`, {
             params: { policy_id: row.policy.id },
           });
           return { ...row, pending: (pendRes.data || []).slice(0, 1) };
         })
-      );
-      setRows(refreshed);
+      ).then((refreshed) => setRows(refreshed));
+      setSelected(new Set());
+    } catch (e) {
+      alert(e?.response?.data?.detail || e?.message || "No se pudo iniciar el pago.");
     } finally {
       setPaying(false);
     }
   };
 
-  if (loading) {
-    return (
-      <main className="payments container section">
-        <p className="muted">Cargando…</p>
-      </main>
-    );
-  }
-
-  return (
-    <main className="payments container section">
-      <header className="pay-header">
-        <h1 className="pay-title">Pagos pendientes</h1>
+  const content = loading ? (
+    <p className="muted">Cargando…</p>
+  ) : (
+    <>
+      <header className="pay-header user-page__header">
+        <h1 className="pay-title user-page__title">Pagos pendientes</h1>
 
         <div className="pay-cta">
-          {/* Botones secundarios alineados horizontalmente */}
+          {/* Botones secundarios */}
           <div className="btn-group">
             <button className="btn--secondary" onClick={selectAll}>
               Seleccionar todo
@@ -141,9 +197,16 @@ export default function Payments() {
         {rows.map(({ policy, detail, pending, receipts }) => {
           const ch = pending[0];
           const selectedThis = ch ? selected.has(ch.id) : false;
+          const visibleEndDate = policy.client_end_date || policy.end_date;
 
           return (
-            <article className="pay-item" key={policy.id}>
+            <article
+              className="pay-item user-card"
+              key={policy.id}
+              ref={(el) => {
+                if (el) policyRefs.current[policy.id] = el;
+              }}
+            >
               <div className="pay-item__head">
                 <div className="pay-item__title">
                   <h2>
@@ -151,9 +214,7 @@ export default function Payments() {
                   </h2>
                   <p className="muted">
                     Póliza #{policy.number} &nbsp;•&nbsp;
-                    <strong>
-                      {policy.status === "active" ? "Activa" : "Inactiva"}
-                    </strong>
+                    <strong>{statusLabel(policy.status)}</strong>
                   </p>
                 </div>
                 <div className="pay-item__meta">
@@ -163,7 +224,11 @@ export default function Payments() {
                   </div>
                   <div className="meta-col">
                     <span className="meta-label">Vencimiento</span>
-                    <strong>{policy.end_date}</strong>
+                    <strong>{visibleEndDate}</strong>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-label">Pago habilitado</span>
+                    <strong>{paymentWindow(policy)}</strong>
                   </div>
                 </div>
               </div>
@@ -220,21 +285,31 @@ export default function Payments() {
 
                           {r.file_url ? (
                             <a
-                              className="btn btn--outline btn--sm"
+                              className="btn btn--outline btn--sm pay-download-btn"
                               href={r.file_url}
                               target="_blank"
                               rel="noreferrer"
+                              aria-label="Descargar comprobante"
+                              download
                             >
-                              Descargar
+                              <span
+                                className="po-download-icon"
+                                aria-hidden="true"
+                              >
+                                <svg viewBox="0 0 24 24" role="presentation">
+                                  <path
+                                    d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </span>
                             </a>
                           ) : (
-                            <button
-                              type="button"
-                              className="btn btn--outline btn--sm"
-                              onClick={() => window.print()}
-                            >
-                              Descargar
-                            </button>
+                            <span className="muted small">PDF no disponible</span>
                           )}
                         </div>
                       </li>
@@ -248,11 +323,16 @@ export default function Payments() {
           );
         })}
       </section>
-    </main>
+    </>
+  );
+
+  return (
+    <section className="payments policies-page user-page">
+      {content}
+    </section>
   );
 }
 
-/* ======== Utilidad para formatear fechas ======== */
 function formatDate(iso) {
   if (!iso) return "—";
   const d = new Date(iso);

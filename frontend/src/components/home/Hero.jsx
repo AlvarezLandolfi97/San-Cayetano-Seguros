@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import useAuth from "@/hooks/useAuth";
 import "@/styles/Hero.css";
 
 export default function Hero({
@@ -11,6 +12,12 @@ export default function Hero({
   logoSrc = "/brand/logonegro.png",
   logoAlt = "San Cayetano Seguros",
 }) {
+  const { user } = useAuth();
+  const isAdmin = !!(user?.is_admin || user?.isAdmin || user?.is_staff);
+  const isLogged = !!user;
+  const panelHref = isAdmin ? "/admin" : "/dashboard/seguro";
+  const panelLabel = isAdmin ? "Admin" : "Mi panel";
+
   return (
     <section className="hero hero--full hero--light" id="hero">
       <div className="hero__inner container">
@@ -28,8 +35,8 @@ export default function Hero({
               <Link to={primaryHref} className="hero__btn hero__btn--primary">
                 {primaryText}
               </Link>
-              <Link to="/login" className="hero__btn hero__btn--ghost">
-                Ingresar
+              <Link to={isLogged ? panelHref : "/login"} className="hero__btn hero__btn--ghost">
+                {isLogged ? panelLabel : "Ingresar"}
               </Link>
             </div>
           </div>

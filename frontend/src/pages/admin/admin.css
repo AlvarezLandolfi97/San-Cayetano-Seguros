@@ -33,6 +33,11 @@ body.admin-page .footer {
   display: none;
 }
 
+/* Sin padding superior en secciones dentro del admin */
+body.admin-page .section {
+  padding-top: 0;
+}
+
 /* Sidebar desktop */
 .admin-sidebar {
   display: none;
@@ -191,6 +196,26 @@ body.admin-page .footer {
     padding: 0 0 76px; /* espacio para nav inferior */
     border-radius: 0;
   }
+}
+
+.installments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.installment-col {
+  border: 1px solid #e6ecf5;
+  background: #f9fbff;
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.installment-col__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
 }
 
 .admin-panel__header {
@@ -745,6 +770,20 @@ body.admin-page .footer {
   font-weight: 600;
   cursor: pointer;
 }
+.btn svg {
+  display: block;
+}
+
+.btn--icon-only {
+  padding: 0.5rem;
+  width: 42px;
+  height: 42px;
+  justify-content: center;
+}
+.btn--icon-only svg {
+  width: 18px;
+  height: 18px;
+}
 
 .btn--light {
   background: #fff;
@@ -821,6 +860,18 @@ body.admin-page .footer {
   white-space: nowrap;
   display: inline-block;
 }
+.card--expiring .countdown-badge,
+.card--expiring .countdown-chip {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #ffffff;
+}
+.card--price-update .countdown-badge,
+.card--price-update .countdown-chip {
+  background: #0d47a1;
+  border-color: #0d47a1;
+  color: #ffffff;
+}
 
 /* Espaciados utilitarios */
 .stack { display: grid; gap: 12px; }
@@ -850,6 +901,11 @@ body.admin-page .footer {
   gap: 4px;
   flex: 1;
   min-width: 0;
+}
+.admin__head-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 .admin__tools {
   display: flex;
@@ -1300,11 +1356,11 @@ body.admin-page .footer {
 .muted { color: #6b7280; }
 .card--expiring {
   border-color: #fecdd3;
-  background: #fef2f2;
+  background: #fff1f3;
 }
 .policies-page .card--expiring {
   border-color: #fecdd3;
-  background: #fef2f2;
+  background: #fff1f3;
 }
 .alert--success {
   border-color: #bbf7d0;
@@ -1322,6 +1378,16 @@ body.admin-page .footer {
   background: #fef2f2;
   color: #b91c1c;
   box-shadow: 0 8px 16px rgba(185, 28, 28, 0.12);
+}
+.alert-bar--warning {
+  border: 1px solid #cfe1ff;
+  background: #eaf3ff;
+  color: #0d47a1;
+  box-shadow: 0 8px 16px rgba(13, 71, 161, 0.12);
+}
+.card--price-update {
+  border-color: #cfe1ff;
+  background: #eaf3ff;
 }
 .col-narrow {
   width: 160px;

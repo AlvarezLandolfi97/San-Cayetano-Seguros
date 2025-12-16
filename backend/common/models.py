@@ -25,3 +25,45 @@ class ContactInfo(models.Model):
     def get_solo(cls):
         obj, _ = cls.objects.get_or_create(id=1)
         return obj
+
+
+class AppSettings(models.Model):
+    expiring_threshold_days = models.PositiveIntegerField(default=7)
+    client_expiration_offset_days = models.PositiveIntegerField(default=2)
+    default_term_months = models.PositiveIntegerField(default=3)
+    payment_window_days = models.PositiveIntegerField(default=5)
+    payment_due_day_display = models.PositiveIntegerField(default=5, help_text="Día del mes comunicado al cliente como vencimiento (1-28/31).")
+    payment_due_day_real = models.PositiveIntegerField(default=7, help_text="Día del mes como corte real; debe ser >= display.")
+    price_update_offset_days = models.PositiveIntegerField(default=2)
+    price_update_every_months = models.PositiveIntegerField(default=3)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Ajustes de la app"
+        verbose_name_plural = "Ajustes de la app"
+
+    def __str__(self):
+        return "Ajustes de pólizas"
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(id=1)
+        return obj
+
+
+class Announcement(models.Model):
+    title = models.CharField(max_length=120)
+    message = models.TextField(blank=True, default="")
+    link = models.URLField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order", "-created_at"]
+        verbose_name = "Anuncio"
+        verbose_name_plural = "Anuncios"
+
+    def __str__(self):
+        return self.title

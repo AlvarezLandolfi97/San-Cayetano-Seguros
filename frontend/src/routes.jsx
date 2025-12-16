@@ -19,7 +19,7 @@ import ResetConfirm from "@/pages/ResetConfirm";
 
 // Pólizas
 import PolicyDetail from "@/pages/PolicyDetail";
-import ClaimPolicy from "@/pages/ClaimPolicy";
+import ClaimPolicy from "@/pages/dashboard/ClaimPolicy";
 
 // Dashboard usuario
 import UserDashboardLayout from "@/pages/dashboard/UserDashboardLayout";
@@ -95,6 +95,7 @@ export default function AppRoutes() {
                 <Route index element={<PolicyOverview />} />
                 <Route path="seguro" element={<PolicyOverview />} />
                 <Route path="pagos" element={<Payments />} />
+                <Route path="asociar-poliza" element={<ClaimPolicy />} />
                 <Route path="perfil" element={<Profile />} />
               </Route>
             </Route>

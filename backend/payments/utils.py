@@ -82,20 +82,57 @@ def _draw_overlay(c, payment, width, height):
     Dibuja los textos sobre el canvas del mismo tamaño que la plantilla PDF.
     Origen (0,0) = abajo-izquierda; POS usa mm desde arriba/izquierda.
     """
-    # ---- Datos (adaptá nombres si difieren) ----------------------------------
-    policy   = getattr(payment, "policy", None)
-    poliza   = getattr(policy, "number", "")
-    patente  = getattr(policy, "license_plate", "")
-    vehiculo = getattr(policy, "vehicle_display", "")
-    cliente  = getattr(getattr(policy, "holder", None), "full_name",
-                       getattr(payment, "payer_name", ""))
+    policy = getattr(payment, "policy", None)
+    vehicle = getattr(policy, "vehicle", None)
+    product = getattr(policy, "product", None)
+    user = getattr(policy, "user", None)
 
-    periodo  = getattr(payment, "period", "")
-    moneda   = getattr(payment, "currency", "PESOS")
-    total    = float(getattr(payment, "amount", 0.0))
-    metodo   = getattr(payment, "method", "EFECTIVO")
-    mp_id    = getattr(payment, "mp_payment_id", "")
-    fecha    = getattr(payment, "created_at", datetime.now())
+    # Compañía / producto
+    company_env = os.getenv("RECEIPT_COMPANY_NAME", "").strip()
+    compania = company_env or getattr(product, "name", "") or "San Cayetano Seguros"
+
+    # Cliente
+    cliente = getattr(payment, "payer_name", "") or ""
+    if user:
+        full = ""
+        try:
+            full = user.get_full_name()
+        except Exception:
+            full = ""
+        if not full:
+            first = getattr(user, "first_name", "") or ""
+            last = getattr(user, "last_name", "") or ""
+            full = f"{first} {last}".strip()
+        cliente = full or cliente or getattr(user, "email", "") or str(getattr(user, "id", ""))
+
+    # Vehículo
+    patente = getattr(vehicle, "plate", "") or ""
+    if patente:
+        patente = patente.upper()
+    veh_parts = [
+        getattr(vehicle, "make", ""),
+        getattr(vehicle, "model", ""),
+        getattr(vehicle, "version", ""),
+    ]
+    year = getattr(vehicle, "year", None)
+    if year:
+        veh_parts.append(str(year))
+    vehiculo = " ".join([str(p) for p in veh_parts if p]) or patente or ""
+
+    # Póliza
+    poliza = getattr(policy, "number", "") or str(getattr(policy, "id", ""))
+
+    # Periodo (AAAMM -> MM/AAAA)
+    periodo_raw = getattr(payment, "period", "") or ""
+    periodo = periodo_raw
+    if isinstance(periodo_raw, str) and len(periodo_raw) == 6 and periodo_raw.isdigit():
+        periodo = f"{periodo_raw[4:6]}/{periodo_raw[:4]}"
+
+    moneda = getattr(payment, "currency", "") or "PESOS"
+    total = float(getattr(payment, "amount", 0.0))
+    metodo = getattr(payment, "method", None) or ("MERCADO PAGO" if getattr(payment, "mp_payment_id", "") else "EFECTIVO")
+    mp_id = getattr(payment, "mp_payment_id", "")
+    fecha = getattr(payment, "created_at", datetime.now())
 
     total_fmt = f"{total:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
     fecha_str = fecha.strftime("%d/%m/%Y")
@@ -111,7 +148,7 @@ def _draw_overlay(c, payment, width, height):
     _draw_text(c, width, height, "cantidad_val", f"{total_fmt} {moneda}")
 
     # ---- Tabla ----------------------------------------------------------------
-    _draw_text(c, width, height, "compania", getattr(policy, "company_name", ""))
+    _draw_text(c, width, height, "compania", str(compania))
     _draw_text(c, width, height, "poliza",   str(poliza))
     _draw_text(c, width, height, "vehiculo", str(vehiculo))
     _draw_text(c, width, height, "patente",  str(patente))
@@ -125,8 +162,9 @@ def _draw_overlay(c, payment, width, height):
     _draw_text(c, width, height, "metodo_right", str(metodo).upper(), right=True, font="Helvetica-Bold", size=11)
 
     # ---- Sello PAGADO ---------------------------------------------------------
-    status = str(getattr(payment, "status", "")).upper()
-    if status in ("APPROVED", "PAID", "PAGADO"):
+    status_val = getattr(payment, "status", None) or getattr(payment, "state", "")
+    status = str(status_val).upper()
+    if status in ("APPROVED", "PAID", "PAGADO", "APR"):
         c.saveState()
         c.setFillColor(red)
         c.setFont("Helvetica-Bold", 26)

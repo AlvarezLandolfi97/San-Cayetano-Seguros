@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/api";
+import GearIcon from "./GearIcon";
 
 export default function Users() {
   const [rows, setRows] = useState([]);
@@ -20,6 +21,9 @@ export default function Users() {
   const [inlineSaving, setInlineSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, row: null, loading: false });
   const [manualPoliciesInput, setManualPoliciesInput] = useState("");
+  const [inlinePoliciesInput, setInlinePoliciesInput] = useState("");
+  const [inlinePolicySaving, setInlinePolicySaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
 
   // pólizas disponibles
   const [availablePolicies, setAvailablePolicies] = useState([]);
@@ -46,6 +50,10 @@ export default function Users() {
     if (!userId) return [];
     return availablePolicies.filter((p) => Number(p.user_id) === Number(userId));
   }, [deleteConfirm.row?.id, availablePolicies]);
+  const inlineUserPolicies = useMemo(() => {
+    if (!expandedUserId) return [];
+    return availablePolicies.filter((p) => Number(p.user_id) === Number(expandedUserId));
+  }, [expandedUserId, availablePolicies]);
   const manualSuggestions = useMemo(() => {
     const term = manualPoliciesInput.trim().toLowerCase();
     if (!term) return [];
@@ -64,6 +72,25 @@ export default function Users() {
       })
       .slice(0, 5);
   }, [allowedPolicies, manualPoliciesInput, assignedIds]);
+  const inlineSuggestions = useMemo(() => {
+    const term = inlinePoliciesInput.trim().toLowerCase();
+    if (!term || !expandedUserId) return [];
+    const assignedSet = new Set(inlineUserPolicies.map((p) => Number(p.id)));
+    return allowedPolicies
+      .filter((p) => !assignedSet.has(Number(p.id)))
+      .filter((p) => {
+        const parts = [
+          p.number,
+          p.vehicle?.plate,
+          p.id ? String(p.id) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return parts.includes(term);
+      })
+      .slice(0, 5);
+  }, [allowedPolicies, inlinePoliciesInput, inlineUserPolicies, expandedUserId]);
   const assignedPolicies = useMemo(() => {
     return Array.from(assignedIds).map((id) => {
       const match = availablePolicies.find((p) => Number(p.id) === Number(id));
@@ -75,7 +102,11 @@ export default function Users() {
     setLoading(true); setErr("");
     try {
       const { data } = await api.get("/admin/users");
-      const arr = (data || []).map((u) => ({ status: u.status || "active", ...u }));
+      const arr = (data || []).map((u) => ({
+        ...u,
+        status: u.is_active === false ? "deleted" : (u.status || "active"),
+        raw_status: u.is_active === false ? "deleted" : (u.status || "active"),
+      }));
       setRows(arr);
     } catch (e) {
       setErr(e?.response?.data?.detail || "No se pudieron cargar los usuarios.");
@@ -111,11 +142,28 @@ export default function Users() {
     setPage(1);
   }, [q, rows.length]);
 
+  const deriveUserStatus = (user) => {
+    if (!user?.id) return user?.status || "inactive";
+    const mine = availablePolicies.filter((p) => Number(p.user_id) === Number(user.id));
+    if (!mine.length) return "inactive";
+    return mine.some((p) => p.status === "active") ? "active" : "inactive";
+  };
+
+  const usersWithStatus = useMemo(
+    () =>
+      rows.map((u) => {
+        const rawStatus = u.status || "active";
+        const derived = rawStatus === "deleted" ? "deleted" : deriveUserStatus(u);
+        return { ...u, raw_status: rawStatus, status: derived, derived_status: derived };
+      }),
+    [rows, availablePolicies]
+  );
+
   function openCreate() {
     setManageModal({
       open: true,
       row: { id: null },
-      draft: { status: "active", email:"", dni:"", first_name:"", last_name:"", dob:"", phone:"", policies: [] },
+      draft: { status: "inactive", email:"", dni:"", first_name:"", last_name:"", dob:"", phone:"", policies: [] },
       saving: false,
     });
     setManualPoliciesInput("");
@@ -174,6 +222,7 @@ export default function Users() {
       dob: row.dob || "",
       phone: row.phone || "",
     });
+    setInlinePoliciesInput("");
   }
 
   function updateInline(field, value) {
@@ -192,20 +241,20 @@ export default function Users() {
   async function saveInline() {
     if (!inlineDraft?.id) return;
     setInlineSaving(true);
+    setSuccessMsg("");
     try {
-      const payload = {
-        status: inlineDraft.status || "active",
-        email: inlineDraft.email,
-        dni: inlineDraft.dni || null,
-        first_name: inlineDraft.first_name || null,
-        last_name: inlineDraft.last_name || null,
-        dob: inlineDraft.dob || null,
-        phone: inlineDraft.phone || null,
-      };
-      await api.patch(`/admin/users/${inlineDraft.id}`, payload);
+      const payload = {};
+      if (inlineDraft.email) payload.email = inlineDraft.email;
+      if (inlineDraft.dni) payload.dni = inlineDraft.dni;
+      if (inlineDraft.first_name) payload.first_name = inlineDraft.first_name;
+      if (inlineDraft.last_name) payload.last_name = inlineDraft.last_name;
+      if (inlineDraft.dob) payload.dob = inlineDraft.dob;
+      if (inlineDraft.phone) payload.phone = inlineDraft.phone;
+      await api.patch(`/admin/users/${inlineDraft.id}`, payload, { params: { partial: true } });
       await fetchUsers();
       setExpandedUserId(null);
       setInlineDraft(null);
+      setSuccessMsg("Usuario actualizado.");
     } catch (e) {
       alert(e?.response?.data?.detail || "No se pudo guardar el usuario.");
     } finally {
@@ -217,7 +266,7 @@ export default function Users() {
     if (!id) return;
     setInlineSaving(true);
     try {
-      await api.patch(`/admin/users/${id}`, { status: "deleted" });
+      await api.patch(`/admin/users/${id}`, { is_active: false });
       await fetchUsers();
       setExpandedUserId(null);
       setInlineDraft(null);
@@ -228,9 +277,39 @@ export default function Users() {
     }
   }
 
+  async function attachPolicyInline(policyId) {
+    if (!policyId || !expandedUserId) return;
+    setInlinePolicySaving(true);
+    try {
+      await api.patch(`/admin/policies/${policyId}`, { user_id: expandedUserId });
+      await fetchUsers();
+      await fetchPoliciesList();
+      setInlinePoliciesInput("");
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo asignar la póliza.");
+    } finally {
+      setInlinePolicySaving(false);
+    }
+  }
+
+  async function detachPolicyInline(policyId) {
+    if (!policyId) return;
+    setInlinePolicySaving(true);
+    try {
+      await api.patch(`/admin/policies/${policyId}`, { user_id: null });
+      await fetchUsers();
+      await fetchPoliciesList();
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo quitar la póliza.");
+    } finally {
+      setInlinePolicySaving(false);
+    }
+  }
+
   async function saveManage() {
     if (!manageModal.draft || !manageModal.row) return;
     setManageModal((m) => ({ ...m, saving: true }));
+    setSuccessMsg("");
     try {
       const draftIds = (manageModal.draft.policies || []).map((p) => Number(p)).filter(Number.isFinite);
       const baseIds = new Set([...draftIds, ...userPolicyIds]);
@@ -244,15 +323,14 @@ export default function Users() {
       const filteredPolicyIds = Array.from(baseIds)
         .filter((id) => allowedSet.has(id))
         .filter((id) => !removedPolicies.includes(id));
-      const payload = {
-        email: manageModal.draft.email,
-        dni: manageModal.draft.dni || null,
-        first_name: manageModal.draft.first_name || null,
-        last_name: manageModal.draft.last_name || null,
-        dob: manageModal.draft.dob || null,
-        phone: manageModal.draft.phone || null,
-        policy_ids: filteredPolicyIds,
-      };
+      const payload = {};
+      if (manageModal.draft.email) payload.email = manageModal.draft.email;
+      if (manageModal.draft.dni) payload.dni = manageModal.draft.dni;
+      if (manageModal.draft.first_name) payload.first_name = manageModal.draft.first_name;
+      if (manageModal.draft.last_name) payload.last_name = manageModal.draft.last_name;
+      if (manageModal.draft.dob) payload.dob = manageModal.draft.dob;
+      if (manageModal.draft.phone) payload.phone = manageModal.draft.phone;
+      payload.policy_ids = filteredPolicyIds;
       if (manageModal.row.id) {
       await api.patch(`/admin/users/${manageModal.row.id}`, payload);
     } else {
@@ -261,6 +339,7 @@ export default function Users() {
       await fetchUsers();
       await fetchPoliciesList();
       closeManage();
+      setSuccessMsg("Usuario guardado.");
     } catch (e) {
       alert(e?.response?.data?.detail || "No se pudo guardar el usuario.");
       setManageModal((m) => ({ ...m, saving: false }));
@@ -276,7 +355,7 @@ export default function Users() {
     setDeleteConfirm((s) => ({ ...s, loading: true }));
     try {
       const userId = deleteConfirm.row.id;
-      await api.patch(`/admin/users/${userId}`, { status: "deleted" });
+      await api.patch(`/admin/users/${userId}`, { is_active: false });
       const policiesToDetach = availablePolicies.filter((p) => Number(p.user_id) === Number(userId));
       if (policiesToDetach.length > 0) {
         await Promise.all(
@@ -304,7 +383,7 @@ export default function Users() {
 
   async function restoreUser(id) {
     try {
-      await api.patch(`/admin/users/${id}`, { status: "active" });
+      await api.patch(`/admin/users/${id}`, { is_active: true });
       await fetchUsers();
     } catch (e) {
       alert(e?.response?.data?.detail || "No se pudo recuperar el usuario.");
@@ -322,15 +401,15 @@ export default function Users() {
         name.includes(term)
       );
     };
-    const actives = rows.filter((r) => {
+    const actives = usersWithStatus.filter((r) => {
       if (r.status === "deleted") return false;
       const matchesTerm = matchTerm(r);
       const matchesStatus = !statusFilter || r.status === statusFilter;
       return matchesTerm && matchesStatus;
     });
-    const archived = rows.filter((r) => r.status === "deleted" && matchTerm(r));
+    const archived = usersWithStatus.filter((r) => r.status === "deleted" && matchTerm(r));
     return { activeUsers: actives, archivedUsers: archived };
-  }, [rows, q, statusFilter]);
+  }, [usersWithStatus, q, statusFilter]);
   const pageCount = useMemo(
     () => Math.max(1, Math.ceil((activeUsers.length || 1) / PAGE_SIZE)),
     [activeUsers.length]
@@ -354,6 +433,7 @@ export default function Users() {
       <div className="card-like">
 
         {err && <div className="register-alert mb-8">{err}</div>}
+        {successMsg && <div className="register-alert alert--success mb-8">{successMsg}</div>}
 
         <div className="pagination pagination--enhanced">
           <select
@@ -406,8 +486,8 @@ export default function Users() {
                     <td>{r.phone || "—"}</td>
                     <td>
                       <div className="row-actions">
-                        <button className="btn btn--outline btn--icon" onClick={() => openManage(r)} aria-label="Gestionar usuario">
-                          Gestionar
+                        <button className="btn btn--outline btn--icon-only" onClick={() => openManage(r)} aria-label="Gestionar usuario">
+                          <GearIcon />
                         </button>
                       </div>
                     </td>
@@ -440,13 +520,6 @@ export default function Users() {
                 {expandedUserId === r.id && inlineDraft && (
                   <div className="compact-details">
                     <div className="detail-row">
-                      <div className="detail-label">Estado</div>
-                      <select className="detail-input" value={inlineDraft.status} onChange={(e)=>updateInline("status", e.target.value)}>
-                        <option value="active">Activo</option>
-                        <option value="inactive">Inactivo</option>
-                      </select>
-                    </div>
-                    <div className="detail-row">
                       <div className="detail-label">Email</div>
                       <input className="detail-input" value={inlineDraft.email} onChange={(e)=>updateInline("email", e.target.value)} />
                     </div>
@@ -469,6 +542,62 @@ export default function Users() {
                     <div className="detail-row">
                       <div className="detail-label">Teléfono</div>
                       <input className="detail-input" value={inlineDraft.phone} onChange={(e)=>updateInline("phone", e.target.value)} />
+                    </div>
+                    <div className="detail-row">
+                      <div className="detail-label">Pólizas</div>
+                      {inlineUserPolicies.length === 0 && <p className="muted m-0">Sin pólizas asignadas.</p>}
+                      {inlineUserPolicies.length > 0 && (
+                        <div className="detail-value policy-chips">
+                          {inlineUserPolicies.map((p) => (
+                            <span key={`inline-pol-${p.id}`} className="policy-chip">
+                              <span className="policy-chip__text">
+                                {p.number || `#${p.id}`} {p.vehicle?.plate ? `— ${p.vehicle.plate}` : ""}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn btn--icon policy-chip__remove"
+                                onClick={() => detachPolicyInline(p.id)}
+                                disabled={inlinePolicySaving}
+                                aria-label={`Quitar póliza ${p.number || p.id}`}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="detail-row">
+                      <div className="detail-label">Agregar póliza</div>
+                      <input
+                        className="detail-input"
+                        placeholder="Número o patente"
+                        value={inlinePoliciesInput}
+                        onChange={(e) => setInlinePoliciesInput(e.target.value)}
+                      />
+                      <small className="muted">Solo aparecen pólizas sin usuario asignado.</small>
+                      {inlineSuggestions.length > 0 && (
+                        <div className="compact-details compact-details--tight">
+                          <div className="detail-list detail-list--flat">
+                            {inlineSuggestions.map((p) => (
+                              <div key={`inline-sugg-${p.id}`} className="detail-row detail-row--compact">
+                                <div className="detail-label">#{p.number || p.id}</div>
+                                <div className="detail-value detail-inline detail-inline--compact">
+                                  <span className="muted">{p.vehicle?.plate || "—"}</span>
+                                  <button
+                                    className="btn btn--subtle"
+                                    type="button"
+                                    onClick={() => attachPolicyInline(p.id)}
+                                    disabled={inlinePolicySaving}
+                                  >
+                                    Agregar
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="compact-actions-inline">
                       <button className="btn btn--danger" onClick={() => askDeleteUser(r)} disabled={inlineSaving}>Eliminar</button>
@@ -556,17 +685,6 @@ export default function Users() {
               <button className="drawer__close" aria-label="Cerrar" onClick={closeManage}>&times;</button>
             </div>
             <div className="detail-list">
-              <div className="detail-row">
-                <div className="detail-label">Estado</div>
-                <select
-                  className="detail-input"
-                  value={manageModal.draft.status}
-                  onChange={(e)=>updateManage("status", e.target.value)}
-                >
-                  <option value="active">Activo</option>
-                  <option value="inactive">Inactivo</option>
-                </select>
-              </div>
               <div className="detail-row">
                 <div className="detail-label">Email</div>
                 <input className="detail-input" type="email" value={manageModal.draft.email} onChange={(e)=>updateManage("email", e.target.value)} />

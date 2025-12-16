@@ -3,13 +3,14 @@
   background: color-mix(in srgb, var(--color-surface, #fff) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-border, #d4deef) 70%, transparent);
   border-radius: 18px;
-  padding: 18px 18px 16px;
+  padding: 14px 14px 12px;
   box-shadow:
-    0 12px 30px color-mix(in srgb, var(--color-primary, #0b2f6d) 18%, transparent),
+    0 10px 24px color-mix(in srgb, var(--color-primary, #0b2f6d) 16%, transparent),
     inset 0 0 0 1px rgba(255, 255, 255, 0.6);
   display: flex;
   flex-direction: column;
-  min-height: 260px;
+  min-height: 180px;
+  max-height: 260px;
   transition: transform .18s ease, box-shadow .2s ease;
 }
 
@@ -21,8 +22,8 @@
 }
 
 .plan__title {
-  margin-top: 4px;
-  font-size: 18px;
+  margin-top: 2px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--color-text, #0c1628);
   letter-spacing: 0.2px;
@@ -31,29 +32,50 @@
 .plan__subtitle {
   margin-top: 4px;
   color: var(--color-text-muted, #4a5568);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
+.plan__list-wrapper {
+  margin-top: 8px;
+  position: relative;
+  flex: 1;
+  max-height: 120px;
+  overflow: hidden;
+}
+
 .plan__list {
-  margin-top: 10px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   padding-left: 16px;
   color: var(--color-text, #0c1628);
-  font-size: 14px;
-  line-height: 1.35;
-  flex: 1;
+  font-size: 13px;
+  line-height: 1.3;
 }
 
 .plan__list li::marker {
   color: var(--color-primary, #0b2f6d);
 }
 
+.plan__fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 60px;
+  background: linear-gradient(180deg, transparent, rgba(255,255,255,0.94));
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary, #0b2f6d);
+  cursor: pointer;
+  padding-bottom: 6px;
+}
+
 .plan__footer {
   display: flex;
   justify-content: flex-start;
-  margin-top: 12px;
+  margin-top: auto;
 }
 
 .plan__btn {
@@ -62,11 +84,11 @@
   color: #f4f7ff;
   font-weight: 700;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 8px 10px;
+  border-radius: 11px;
   cursor: pointer;
   transition: transform .15s ease, box-shadow .2s ease, filter .2s ease;
-  box-shadow: 0 12px 26px rgba(7, 36, 82, 0.24);
+  box-shadow: 0 10px 20px rgba(7, 36, 82, 0.2);
   text-align: center;
   text-decoration: none;
   backdrop-filter: blur(4px);
@@ -77,4 +99,81 @@
   background: linear-gradient(180deg, rgba(12, 42, 90, 0.98) 0%, rgba(12, 42, 90, 0.9) 60%, rgba(8, 31, 70, 0.98) 100%);
   color: #ffffff;
   box-shadow: 0 14px 30px rgba(7, 36, 82, 0.28);
+}
+
+@media (max-width: 720px) {
+  .plan {
+    min-height: 220px;
+    max-height: 320px;
+  }
+
+  .plan__list-wrapper {
+    max-height: 160px;
+  }
+}
+
+.plan-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+}
+
+.plan-modal__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+}
+
+.plan-modal__card {
+  position: relative;
+  width: min(520px, 92vw);
+  max-height: 80vh;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.22);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.plan-modal__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.plan-modal__eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: #718096;
+  margin: 0 0 4px 0;
+}
+
+.plan-modal__close {
+  border: none;
+  background: #f1f5f9;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.plan-modal__body {
+  overflow: auto;
+  padding-right: 4px;
+  flex: 1;
+}
+
+.plan__list--modal {
+  max-height: none;
+  font-size: 14px;
+  gap: 8px;
 }
