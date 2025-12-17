@@ -1,4 +1,7 @@
 import os
+import random
+import re
+import logging
 from rest_framework import status, views, response
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,10 +12,73 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.mail import send_mail
+from django.core.cache import cache
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import UserSerializer
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+
+def _mask_email(email: str):
+    if not email or "@" not in email:
+        return "correo desconocido"
+    name, domain = email.split("@", 1)
+    if len(name) <= 2:
+        masked_name = name[0] + "***"
+    else:
+        masked_name = name[0] + "***" + name[-1]
+    return f"{masked_name}@{domain}"
+
+
+def _send_email_code(email: str, code: str):
+    """
+    Envía el código 2FA por email (ingresado en login).
+    """
+    if not email:
+        logger.warning("No se pudo enviar código 2FA: email vacío.")
+        return False
+    subject = "Código de verificación - Acceso administrador"
+    message = (
+        f"Tu código de acceso es: {code}\n"
+        "Tiene validez de 5 minutos.\n\n"
+        "Si no solicitaste este ingreso, podés ignorar este mensaje."
+    )
+    try:
+        send_mail(
+            subject,
+            message,
+            "anitaormeba@gmail.com",  # remitente solicitado
+            [email],
+            fail_silently=False,
+        )
+        return True
+    except Exception as exc:  # pragma: no cover - side effect externo
+        logger.warning("No se pudo enviar el código por email: %s", exc)
+        return False
+
+
+def _send_whatsapp_code(phone: str, code: str):
+    """
+    Envía (o al menos registra) el código 2FA por WhatsApp.
+    Si se configura WHATSAPP_WEBHOOK_URL, intentamos hacer POST con {to, message}.
+    Caso contrario, se loguea para entorno de pruebas.
+    """
+    message = f"Tu código de acceso (admin) es: {code}. Vence en 5 minutos."
+    webhook = os.getenv("WHATSAPP_WEBHOOK_URL")
+    if webhook:
+        try:
+            requests.post(
+                webhook,
+                json={"to": phone, "message": message},
+                timeout=5,
+            )
+            return True
+        except Exception as exc:  # pragma: no cover - side effect externo
+            logger.warning("No se pudo enviar el código por WhatsApp: %s", exc)
+            return False
+    logger.info("[2FA admin] Enviar a %s: %s", phone or "(sin teléfono)", message)
+    return True
 
 
 class EmailLoginView(APIView):
@@ -25,6 +91,7 @@ class EmailLoginView(APIView):
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
         password = request.data.get("password") or ""
+        otp = (request.data.get("otp") or "").strip()
         if not email or not password:
             return Response({"detail": "Email y contraseña requeridos."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -37,6 +104,37 @@ class EmailLoginView(APIView):
 
         if not user.check_password(password):
             return Response({"detail": "Credenciales inválidas."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Doble verificación para staff/admin
+        if user.is_staff:
+            cache_key = f"admin_otp:{user.id}"
+            cached_code = cache.get(cache_key)
+
+            if otp:
+                if not cached_code or otp != cached_code:
+                    return Response(
+                        {
+                            "detail": "Código inválido o expirado.",
+                            "require_otp": True,
+                            "otp_sent_to": _mask_email(email),
+                            "otp_ttl_seconds": 300,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                cache.delete(cache_key)
+            else:
+                code = str(random.randint(100000, 999999))
+                cache.set(cache_key, code, timeout=300)
+                _send_email_code(email, code)
+                return Response(
+                    {
+                        "detail": "Te enviamos un código a tu email. Ingresalo para continuar.",
+                        "require_otp": True,
+                        "otp_sent_to": _mask_email(email),
+                        "otp_ttl_seconds": 300,
+                    },
+                    status=status.HTTP_202_ACCEPTED,
+                )
 
         refresh = RefreshToken.for_user(user)
         data = {

@@ -27,9 +27,12 @@ export default function Login() {
     password: "",
     remember: true,
     reveal: false,
+    otp: "",
   });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [needOtp, setNeedOtp] = useState(false);
+  const [otpInfo, setOtpInfo] = useState({ phone: "", ttl: 300 });
 
   const onChange = (e) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -41,16 +44,30 @@ export default function Login() {
     if (!form.email) return setErr("Ingresá tu email.");
     if (!/\S+@\S+\.\S+/.test(form.email)) return setErr("Ingresá un email válido.");
     if (!form.password) return setErr("Ingresá tu contraseña.");
+    if (needOtp && !form.otp) return setErr("Ingresá el código que te enviamos.");
 
     try {
       setLoading(true);
 
       // Esperamos que login devuelva el usuario (ya normalizado en AuthProvider)
-      const user = await login({
+      const result = await login({
         email: form.email.trim(),
         password: form.password,
         remember: form.remember,
+        otp: form.otp || undefined,
       });
+
+      if (result?.require_otp) {
+        setNeedOtp(true);
+        setOtpInfo({
+          phone: result.otp_sent_to || "",
+          ttl: result.otp_ttl_seconds || 300,
+        });
+        setErr(result.detail || "Te enviamos un código a tu WhatsApp. Ingresalo para continuar.");
+        return;
+      }
+
+      const user = result;
 
       // Fallback por las dudas (usa tu clave real en LS)
       const lsUser = (() => {
@@ -73,6 +90,13 @@ export default function Login() {
         e2?.response?.data?.error ||
         "No pudimos iniciar sesión. Revisá tus datos e intentá nuevamente.";
       setErr(msg);
+      if (e2?.response?.data?.require_otp) {
+        setNeedOtp(true);
+        setOtpInfo({
+          phone: e2?.response?.data?.otp_sent_to || "",
+          ttl: e2?.response?.data?.otp_ttl_seconds || 300,
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -151,6 +175,29 @@ export default function Login() {
               Olvidé mi contraseña
             </Link>
           </div>
+
+          {needOtp && (
+            <div className="form-group">
+              <label htmlFor="otp">Código de verificación</label>
+              <input
+                id="otp"
+                name="otp"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={form.otp}
+                onChange={onChange}
+                placeholder="Ej: 123456"
+                required
+                disabled={loading}
+              />
+              <small className="hint">
+                Te enviamos un código de 6 dígitos a {otpInfo.phone || "tu WhatsApp"}.
+                Tiene validez de {Math.round((otpInfo.ttl || 300) / 60)} minutos.
+              </small>
+            </div>
+          )}
 
           <button
             type="submit"

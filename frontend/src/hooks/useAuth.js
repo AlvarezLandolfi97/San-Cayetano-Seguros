@@ -69,9 +69,18 @@ export function AuthProvider({ children }) {
   }
 
   // ------ acciones públicas ------
-  async function login({ email, password }) {
+  async function login({ email, password, otp }) {
     // adapta la URL a tu backend
-    const { data } = await api.post("/auth/login", { email, password });
+    const { data } = await api.post("/auth/login", { email, password, otp });
+    // Si el backend pide 2FA, devolvemos bandera y no seteamos sesión
+    if (data?.require_otp) {
+      return {
+        require_otp: true,
+        detail: data.detail,
+        otp_sent_to: data.otp_sent_to,
+        otp_ttl_seconds: data.otp_ttl_seconds,
+      };
+    }
     // se espera: { user, access, refresh } (o nombres equivalentes)
     setSession({ user: data.user, access: data.access, refresh: data.refresh });
     return normalizeUser(data.user); // ✅ devolvemos user normalizado
