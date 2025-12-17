@@ -120,13 +120,15 @@ function paymentWindow(row, prefWindowDays, dueDayDisplay) {
   // 1) cuota
   const inst = nextInstallment(row);
   const instStart = inst?.payment_window_start || "";
-  const instEnd = inst?.payment_window_end || "";
-  if (instStart && instEnd) return { start: instStart, end: instEnd };
+  const instEnd = inst?.payment_window_end || inst?.due_date_display || "";
+  const instRealEnd = inst?.due_date_real || instEnd || "";
+  if (instStart && (instEnd || instRealEnd)) return { start: instStart, end: instEnd, realEnd: instRealEnd };
 
   // 2) timeline explícito
   const explicit = {
     start: row?.payment_start_date || "",
     end: row?.payment_end_date || "",
+    realEnd: row?.real_end_date || row?.end_date || "",
   };
   if (explicit.start && explicit.end) return explicit;
 
@@ -156,17 +158,18 @@ function paymentWindow(row, prefWindowDays, dueDayDisplay) {
   return {
     start: start.toISOString().slice(0, 10),
     end: end.toISOString().slice(0, 10),
+    realEnd: end.toISOString().slice(0, 10),
   };
 }
 
 function inPaymentWindow(row, prefWindowDays, dueDayDisplay) {
-  const { start, end } = paymentWindow(row, prefWindowDays, dueDayDisplay);
+  const { start, end, realEnd } = paymentWindow(row, prefWindowDays, dueDayDisplay);
   const from = daysUntil(start);
-  const to = daysUntil(end);
+  const to = daysUntil(realEnd || end);
   // Si estamos dentro de la ventana, OK
   if (Number.isFinite(from) && Number.isFinite(to) && from <= 0 && to >= 0) return true;
   // Permitir pago hasta el vencimiento real
-  const real = row?.real_end_date || row?.end_date;
+  const real = realEnd || row?.real_end_date || row?.end_date;
   const realDiff = daysUntil(real);
   if (Number.isFinite(realDiff) && realDiff >= 0) return true;
   return false;
@@ -196,18 +199,6 @@ function realDueDay(row, fallbackDay) {
   const d = new Date(dateStr + "T00:00:00");
   if (Number.isNaN(d)) return fallbackDay ?? null;
   return d.getDate();
-}
-
-function derivedRealDueDayFromSettings(dueDayDisplay, clientOffsetDays, anchorDay) {
-  const displayConfig = Number(dueDayDisplay);
-  const effectiveDisplay =
-    Number.isFinite(displayConfig) && displayConfig > 0
-      ? displayConfig
-      : (Number.isFinite(anchorDay) && anchorDay > 0 ? anchorDay : null);
-  const d = effectiveDisplay;
-  const off = Number(clientOffsetDays);
-  if (Number.isFinite(d) && d > 0 && Number.isFinite(off) && off >= 0) return d + off;
-  return null;
 }
 
 function sPlural(n) {
@@ -256,24 +247,14 @@ function validateDraft(draft, { requireProduct = true, requireEnd = true, requir
 
 function displayRealDue(row, fallbackDay, offsetDays = 0) {
   const inst = nextInstallment(row);
-  const dateStr = inst?.due_date_real || inst?.due_date_display || row?.real_end_date || row?.end_date;
-
-  if (dateStr && inst) {
+  const realDate = inst?.due_date_real || row?.real_end_date || row?.end_date;
+  const visibleDate = inst?.payment_window_end || inst?.due_date_display || row?.payment_end_date || row?.client_end_date;
+  if (realDate) {
     const day = realDueDay(row, fallbackDay);
-    return day ? `${dateStr} (día ${day})` : dateStr;
+    const suffix = visibleDate && visibleDate !== realDate ? ` (visible ${visibleDate})` : "";
+    return day ? `${realDate} (día ${day})${suffix}` : `${realDate}${suffix}`;
   }
-
-  // si no hay cuotas, construir desde el fin de ventana + offset
-  const paymentEndStr = row?.payment_end_date || row?.client_end_date || row?.end_date;
-  const base = paymentEndStr ? new Date(`${paymentEndStr}T00:00:00`) : null;
-  if (base instanceof Date && !Number.isNaN(base)) {
-    const real = new Date(base);
-    if (Number.isFinite(offsetDays)) real.setDate(real.getDate() + offsetDays);
-    const iso = real.toISOString().slice(0, 10);
-    const dayNum = real.getDate();
-    return `${iso} (día ${dayNum})`;
-  }
-
+  if (visibleDate) return visibleDate;
   const day = fallbackDay ?? realDueDay(row, fallbackDay);
   return day ? `día ${day}` : "—";
 }
@@ -395,14 +376,7 @@ export default function Policies() {
   // preferencias admin
   const [defaultTerm, setDefaultTerm] = useState(3);
   const [dueDayDisplay, setDueDayDisplay] = useState(null);
-  const [dueDayReal, setDueDayReal] = useState(null);
   const [clientOffsetDays, setClientOffsetDays] = useState(null);
-
-  const realOffset = useMemo(() => {
-    if (Number.isFinite(dueDayReal) && Number.isFinite(dueDayDisplay)) return dueDayReal - dueDayDisplay;
-    if (Number.isFinite(clientOffsetDays)) return clientOffsetDays; // real = display + offset
-    return 0;
-  }, [dueDayReal, dueDayDisplay, clientOffsetDays]);
 
   async function fetchPolicies() {
     setLoading(true);
@@ -474,15 +448,6 @@ export default function Policies() {
 
       const offset = Number(readMaybe(s, ["client_expiration_offset_days", "clientExpirationOffsetDays"]));
       if (Number.isFinite(offset) && offset >= 0) setClientOffsetDays(offset);
-
-      const realDayRaw = readMaybe(s, ["payment_due_day_real", "paymentDueDayReal"]);
-      const realDay = Number(realDayRaw);
-
-      // si no viene payment_due_day_real, lo derivamos: real = display + offset (ej: 7 + 2 = 9)
-      if (Number.isFinite(realDay) && realDay > 0) setDueDayReal(realDay);
-      else if (Number.isFinite(displayDay) && displayDay > 0 && Number.isFinite(offset) && offset >= 0) {
-        setDueDayReal(displayDay + offset);
-      }
     } catch {
       // defaults silenciosos
     }
@@ -1461,11 +1426,7 @@ export default function Policies() {
                 <div className="detail-row">
                   <div className="detail-label">Día de vencimiento real</div>
                   <div className="detail-value muted">
-                    {displayRealDue(
-                      manageModal.row,
-                      derivedRealDueDayFromSettings(dueDayDisplay, clientOffsetDays, anchorDayFromStart(manageModal.row)) ?? dueDayReal,
-                      realOffset
-                    )}
+                    {displayRealDue(manageModal.row)}
                   </div>
                 </div>
 

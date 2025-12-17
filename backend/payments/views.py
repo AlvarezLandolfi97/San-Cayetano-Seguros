@@ -10,9 +10,9 @@ from django.shortcuts import get_object_or_404
 from .utils import generate_receipt_pdf
 from django.utils.crypto import get_random_string, constant_time_compare
 from .models import Charge, Receipt
-from datetime import date, timedelta
+from datetime import date
 from common.models import AppSettings
-from calendar import monthrange
+from policies.billing import current_payment_cycle
 
 
 def _authorize_mp_webhook(request):
@@ -36,46 +36,15 @@ def _authorize_mp_webhook(request):
     return True, ""
 
 
-def _add_months_keep_day(start_date, months):
-    """
-    Suma meses conservando el día cuando es posible; si el mes de destino
-    no tiene ese día (p. ej., 31 a febrero), usa el último día del mes.
-    """
-    if not start_date or months is None:
-        return None
-    year = start_date.year + (start_date.month - 1 + months) // 12
-    month = (start_date.month - 1 + months) % 12 + 1
-    day = start_date.day
-    last_day = monthrange(year, month)[1]
-    return date(year, month, min(day, last_day))
-
-
 def _current_payment_window(policy, settings_obj):
     """
     Devuelve (inicio, fin) de la ventana de pago vigente o próxima,
     siguiendo la misma lógica que policies/_policy_timeline.
     """
-    payment_days = max(1, getattr(settings_obj, "payment_window_days", 0) or 0)
-    anchor = getattr(policy, "start_date", None) or date.today()
-    today = date.today()
-    real_due = getattr(policy, "end_date", None)
-
-    if not anchor:
+    cycle = current_payment_cycle(policy, settings_obj)
+    if not cycle:
         return None, None
-
-    idx = 0
-    start = anchor
-    while start:
-        end = start + timedelta(days=payment_days)
-        # Permitir pago hasta vencimiento real
-        if real_due and end < real_due and today <= real_due:
-            end = real_due
-        # Si hoy cae dentro o antes del fin de esta ventana, la usamos.
-        if today <= end:
-            return start, end
-        idx += 1
-        start = _add_months_keep_day(anchor, idx)
-    return None, None
+    return cycle.get("payment_window_start"), cycle.get("due_real")
 
 class PaymentViewSet(viewsets.ModelViewSet):
     queryset = Payment.objects.all().order_by('-id')
@@ -125,9 +94,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
             return Response({'detail':'No autorizado'}, status=403)
         settings_obj = AppSettings.get_solo()
         window_start, window_end = _current_payment_window(policy, settings_obj)
-        real_due = getattr(policy, "end_date", None)
-        if window_end and real_due and real_due > window_end and date.today() <= real_due:
-            window_end = real_due
 
         # Si estamos dentro de la ventana y no hay un cargo pendiente NI uno pagado en esta ventana, lo generamos.
         if window_start and window_end and window_start <= date.today() <= window_end:
@@ -224,27 +190,10 @@ def mp_webhook(request):
 def manual_payment(request, policy_id=None):
     policy = get_object_or_404(Policy, id=policy_id)
     settings_obj = AppSettings.get_solo()
-    payment_days = max(1, getattr(settings_obj, "payment_window_days", 0) or 0)
-    anchor = getattr(policy, "start_date", None) or date.today()
     today = date.today()
-
-    def _add_months_local(start, months):
-        year = start.year + (start.month - 1 + months) // 12
-        month = (start.month - 1 + months) % 12 + 1
-        day = start.day
-        last_day = [31, 29 if (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
-        return date(year, month, min(day, last_day))
-
-    payment_start = anchor
-    if payment_start:
-        idx = 0
-        while payment_start:
-            payment_end_candidate = payment_start + timedelta(days=payment_days)
-            if today <= payment_end_candidate:
-                break
-            idx += 1
-            payment_start = _add_months_local(anchor, idx)
-    payment_end = payment_start + timedelta(days=payment_days) if payment_start else None
+    cycle = current_payment_cycle(policy, settings_obj) or {}
+    payment_start = cycle.get("payment_window_start") or getattr(policy, "start_date", None) or today
+    payment_end = cycle.get("due_real") or payment_start
 
     charge = Charge.objects.filter(policy=policy, status="pending").order_by("-id").first()
     if charge:

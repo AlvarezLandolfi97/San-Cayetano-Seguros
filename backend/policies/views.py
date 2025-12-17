@@ -14,13 +14,15 @@ from common.models import AppSettings
 from payments.serializers import ReceiptSerializer
 from payments.models import Receipt
 from .billing import (
+    current_payment_cycle,
+    next_price_update_window,
     regenerate_installments,
     refresh_installment_statuses,
     update_policy_status_from_installments,
 )
 import secrets
 import string
-from datetime import date, timedelta
+from datetime import date
 from calendar import monthrange
 
 
@@ -29,65 +31,16 @@ def _gen_claim_code(length=8):
     return "SC-" + "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def _client_end_date(end_date, settings_obj):
-    if not end_date:
-        return None
-    offset = max(0, getattr(settings_obj, "client_expiration_offset_days", 0) or 0)
-    return end_date - timedelta(days=offset)
-
-
 def _policy_timeline(policy, settings_obj):
-    payment_days = max(1, getattr(settings_obj, "payment_window_days", 0) or 0)
-    price_offset = max(0, getattr(settings_obj, "price_update_offset_days", 0) or 0)
-    client_offset = max(0, getattr(settings_obj, "client_expiration_offset_days", 0) or 0)
-    # Offset real = diferencia configurada (real - display) o client_offset como fallback.
-    diff_real_display = None
-    try:
-        dd = getattr(settings_obj, "payment_due_day_display", None)
-        dr = getattr(settings_obj, "payment_due_day_real", None)
-        if dd is not None and dr is not None and dr >= dd:
-            diff_real_display = dr - dd
-    except Exception:
-        diff_real_display = None
-
-    anchor = getattr(policy, "start_date", None) or date.today()
     today = date.today()
+    cycle = current_payment_cycle(policy, settings_obj, today=today) or {}
 
-    first_payment_start = anchor
-    payment_start = None
-    payment_end = None
-    real_due = getattr(policy, "end_date", None)
-    client_due = _client_end_date(real_due, settings_obj)
+    client_due = cycle.get("payment_window_end") if cycle else None
+    real_due = cycle.get("due_real") if cycle else getattr(policy, "end_date", None)
+    payment_start = cycle.get("payment_window_start") if cycle else getattr(policy, "start_date", None)
+    payment_end = cycle.get("due_real") if cycle else real_due
 
-    if first_payment_start and (not real_due or today <= real_due):
-        def _months_between(start, current):
-            return (current.year - start.year) * 12 + (current.month - start.month)
-
-        idx = max(0, _months_between(first_payment_start, today) - 1)
-        candidate = _add_months(first_payment_start, idx)
-
-        from calendar import monthrange
-
-        while candidate:
-            year = candidate.year
-            month = candidate.month
-            last_day = monthrange(year, month)[1]
-            # Ventana dinámica: arranca el mismo día de inicio (clamp al mes) y dura payment_days.
-            start_day = min(candidate.day, last_day)
-            payment_start = date(year, month, start_day)
-            payment_end = date(year, month, min(start_day + payment_days - 1, last_day))
-            real_offset = diff_real_display if diff_real_display is not None else client_offset
-            real_day = min(payment_end.day + real_offset, last_day) if real_offset is not None else payment_end.day
-            real_due = date(year, month, max(real_day, payment_end.day))
-
-            if payment_end >= today:
-                break
-            idx += 1
-            candidate = _add_months(first_payment_start, idx)
-
-    price_anchor = getattr(policy, "end_date", None)
-    price_update_from = price_anchor - timedelta(days=price_offset) if price_anchor else None
-    price_update_to = price_anchor - timedelta(days=1) if price_anchor else None
+    price_update_from, price_update_to = next_price_update_window(policy, settings_obj, today=today)
 
     return {
         "real_end_date": real_due,

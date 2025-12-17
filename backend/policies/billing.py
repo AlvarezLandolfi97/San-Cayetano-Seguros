@@ -1,7 +1,7 @@
 # backend/policies/billing.py
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Iterable, List, Optional, Sequence
 
@@ -47,8 +47,8 @@ def compute_installment_status(installment: PolicyInstallment, today: Optional[d
     """
     Stateless status derivation following the requested rules:
     - If already paid, keep PAID.
-    - If today <= payment_window_end -> PENDING
-    - If payment_window_end < today <= due_date_real -> NEAR_DUE
+    - If today <= payment_window_end (vencimiento adelantado) -> PENDING
+    - If payment_window_end < today <= due_date_real -> NEAR_DUE (aún puede pagar)
     - If today > due_date_real -> EXPIRED
     """
     if installment.status == PolicyInstallment.Status.PAID:
@@ -63,48 +63,67 @@ def compute_installment_status(installment: PolicyInstallment, today: Optional[d
     return PolicyInstallment.Status.EXPIRED
 
 
+def _cycle_dates_for_period(period_start: date, *, payment_window_days: int, display_offset_days: int):
+    """
+    Calcula las fechas clave de un período mensual tomando como ancla el día
+    de creación de la póliza:
+    - La ventana de pago arranca el mismo día del start_date (clamp al mes).
+    - Vencimiento real: start_day + payment_window_days (incluye el día de inicio).
+    - Vencimiento visible: real - display_offset (no menor al start_day).
+    """
+    year = period_start.year
+    month = period_start.month
+    last_day = monthrange(year, month)[1]
+
+    start_day = min(period_start.day, last_day)
+    payment_start = date(year, month, start_day)
+
+    real_day = min(start_day + payment_window_days, last_day)
+    due_real = date(year, month, real_day)
+
+    display_day = max(start_day, real_day - display_offset_days)
+    payment_end = date(year, month, display_day)
+
+    return {
+        "period_end": _add_months(period_start, 1) - timedelta(days=1),
+        "payment_window_start": payment_start,
+        "payment_window_end": payment_end,
+        "due_display": payment_end,
+        "due_real": due_real,
+    }
+
+
 def _build_installments(
     policy: Policy,
     months_duration: int,
     monthly_amount: Decimal,
     payment_window_days: int,
-    real_due_grace_days: int,
+    display_offset_days: int,
 ) -> List[PolicyInstallment]:
     if months_duration <= 0 or not policy.start_date:
         return []
     installments: List[PolicyInstallment] = []
     start = policy.start_date
-    # Ejemplo del diagrama: vencimiento adelantado día 5, vencimiento real día 7, ventana de pago: días previos al 5.
     window_days = max(1, payment_window_days)
-    grace_days = max(0, real_due_grace_days)  # 0 => vencimiento real igual al adelantado
+    display_offset = max(0, display_offset_days)
     for idx in range(months_duration):
         period_start = _add_months(start, idx)
-        period_end = _add_months(period_start, 1) - timedelta(days=1)
-        year = period_start.year
-        month = period_start.month
-        last_day = monthrange(year, month)[1]
-
-        # Ventana dinámica: arranca el mismo día del start_date del período y dura window_days.
-        start_day = min(period_start.day, last_day)
-        payment_start = date(year, month, start_day)
-        payment_end_day = min(start_day + window_days - 1, last_day)
-        payment_end = date(year, month, payment_end_day)
-
-        # Vencimiento real = fin de ventana + gracia (offset real) clamped al mes.
-        real_day = min(payment_end_day + grace_days, last_day)
-        due_display = payment_end
-        due_real = date(year, month, max(real_day, payment_end_day))
+        cycle = _cycle_dates_for_period(
+            period_start,
+            payment_window_days=window_days,
+            display_offset_days=display_offset,
+        )
 
         installments.append(
             PolicyInstallment(
                 policy=policy,
                 sequence=idx + 1,
                 period_start_date=period_start,
-                period_end_date=period_end,
-                payment_window_start=payment_start,
-                payment_window_end=payment_end,
-                due_date_display=due_display,
-                due_date_real=due_real,
+                period_end_date=cycle["period_end"],
+                payment_window_start=cycle["payment_window_start"],
+                payment_window_end=cycle["payment_window_end"],
+                due_date_display=cycle["due_display"],
+                due_date_real=cycle["due_real"],
                 amount=monthly_amount,
                 status=PolicyInstallment.Status.PENDING,
             )
@@ -137,13 +156,7 @@ def regenerate_installments(
     settings_obj = AppSettings.get_solo()
     months = months_duration if months_duration is not None else months_duration_for_policy(policy)
     amount = monthly_amount if monthly_amount is not None else (policy.premium or Decimal("0"))
-    settings_obj = AppSettings.get_solo()
-    grace_from_settings = (
-        (getattr(settings_obj, "payment_due_day_real", 0) or 0)
-        - (getattr(settings_obj, "payment_due_day_display", 0) or 0)
-    )
-    if grace_from_settings <= 0:
-        grace_from_settings = getattr(settings_obj, "client_expiration_offset_days", 0) or 0
+    display_offset = getattr(settings_obj, "client_expiration_offset_days", 0) or 0
 
     with transaction.atomic():
         policy.installments.all().delete()
@@ -152,10 +165,75 @@ def regenerate_installments(
             months_duration=months,
             monthly_amount=amount,
             payment_window_days=getattr(settings_obj, "payment_window_days", 5) or 5,
-            real_due_grace_days=max(0, grace_from_settings),
+            display_offset_days=max(0, display_offset),
         )
         PolicyInstallment.objects.bulk_create(installments)
     return policy.installments.all()
+
+
+def current_payment_cycle(
+    policy: Policy,
+    settings_obj: AppSettings,
+    *,
+    today: Optional[date] = None,
+) -> Optional[dict]:
+    """
+    Devuelve las fechas de la cuota vigente (o la última conocida) siguiendo
+    las preferencias configurables.
+    """
+    if not policy.start_date:
+        return None
+    today = today or date.today()
+    months_to_generate = max(months_duration_for_policy(policy), 1)
+    window_days = max(1, getattr(settings_obj, "payment_window_days", 5) or 5)
+    display_offset = max(0, getattr(settings_obj, "client_expiration_offset_days", 0) or 0)
+
+    cycle: Optional[dict] = None
+    for idx in range(months_to_generate):
+        period_start = _add_months(policy.start_date, idx)
+        cycle = {
+            "period_start": period_start,
+            **_cycle_dates_for_period(
+                period_start,
+                payment_window_days=window_days,
+                display_offset_days=display_offset,
+            ),
+        }
+        if cycle["due_real"] >= today:
+            break
+    return cycle
+
+
+def next_price_update_window(
+    policy: Policy,
+    settings_obj: AppSettings,
+    *,
+    today: Optional[date] = None,
+) -> tuple[Optional[date], Optional[date]]:
+    """
+    Calcula la ventana en la que el admin puede actualizar el precio antes del
+    próximo período (ej: cada 3 meses, los 3 días previos).
+    """
+    today = today or date.today()
+    anchor = policy.start_date or today
+    every_months = max(1, getattr(settings_obj, "price_update_every_months", 0) or 1)
+    offset_days = max(0, getattr(settings_obj, "price_update_offset_days", 0) or 0)
+
+    next_start = None
+    months_step = every_months
+    attempts = 0
+    while attempts < 120:  # hard stop para evitar loops
+        candidate = _add_months(anchor, months_step)
+        if candidate >= today:
+            next_start = candidate
+            break
+        months_step += every_months
+        attempts += 1
+
+    if not next_start:
+        return None, None
+
+    return next_start - timedelta(days=offset_days), next_start - timedelta(days=1)
 
 
 def refresh_installment_statuses(installments: Iterable[PolicyInstallment], *, persist: bool = False) -> None:

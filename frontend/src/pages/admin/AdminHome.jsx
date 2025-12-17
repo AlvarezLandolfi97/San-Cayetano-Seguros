@@ -61,7 +61,11 @@ export default function AdminHome() {
           if (Number.isFinite(payWindow) && payWindow >= 0) setPaymentWindow(payWindow);
           const priceOffset = Number(data?.price_update_offset_days);
           if (Number.isFinite(priceOffset) && priceOffset >= 0) setPriceUpdateOffset(priceOffset);
-          const term = Number(data?.default_term_months);
+          const term = Number(
+            data?.price_update_every_months != null
+              ? data.price_update_every_months
+              : data?.default_term_months
+          );
           if (Number.isFinite(term) && term > 0) setDefaultTerm(term);
         } catch {
           /* silent */
@@ -130,8 +134,8 @@ export default function AdminHome() {
         client_expiration_offset_days: clientOffset,
         payment_window_days: paymentWindow,
         price_update_offset_days: priceUpdateOffset,
-        price_update_every_months: defaultTerm,
-        default_term_months: defaultTerm,
+        price_update_every_months: defaultTerm, // frecuencia de ajuste
+        default_term_months: defaultTerm, // mantenemos sincronizado con la vigencia por defecto
       });
     } catch (e2) {
       setErr(e2?.response?.data?.detail || "No se pudo guardar las preferencias.");
