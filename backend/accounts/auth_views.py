@@ -2,10 +2,13 @@ import os
 import random
 import re
 import logging
-from rest_framework import status, views, response
+import requests
+from rest_framework import permissions, status, views, response
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
 from django.utils.encoding import force_bytes, force_str
@@ -13,11 +16,20 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.mail import send_mail
 from django.core.cache import cache
+from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
 from .serializers import UserSerializer
+from django.urls import reverse
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+def _bool(value, default=False):
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "t", "yes", "y", "on")
 
 
 def _mask_email(email: str):
@@ -44,11 +56,12 @@ def _send_email_code(email: str, code: str):
         "Tiene validez de 5 minutos.\n\n"
         "Si no solicitaste este ingreso, podés ignorar este mensaje."
     )
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@sancayetano.com")
     try:
         send_mail(
             subject,
             message,
-            "anitaormeba@gmail.com",  # remitente solicitado
+            from_email,
             [email],
             fail_silently=False,
         )
@@ -81,12 +94,64 @@ def _send_whatsapp_code(phone: str, code: str):
     return True
 
 
+def _build_reset_link(user):
+    origin_env = os.getenv("FRONTEND_ORIGINS") or os.getenv("FRONTEND_ORIGIN") or ""
+    origin = (origin_env.split(",")[0] or "").strip() or "http://localhost:5173"
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = PasswordResetTokenGenerator().make_token(user)
+    return f"{origin.rstrip('/')}/reset/confirm?uid={uid}&token={token}"
+
+
+def _send_onboarding(user, *, send_otp: bool = True):
+    """
+    Envía link de acceso + OTP opcional por email y WhatsApp (si hay webhook).
+    """
+    link = _build_reset_link(user)
+    otp = None
+    if send_otp:
+        otp = str(random.randint(100000, 999999))
+        cache.set(f"onboarding_otp:{user.id}", otp, timeout=600)
+
+    # Email con link + OTP
+    if user.email:
+        parts = [
+            "Bienvenido/a a San Cayetano Seguros.",
+            f"Establecé tu contraseña acá: {link}",
+        ]
+        if otp:
+            parts.append(f"Tu código de acceso es: {otp} (10 minutos de validez).")
+        try:
+            send_mail(
+                "Accedé a tu cuenta",
+                "\n".join(parts),
+                None,
+                [user.email],
+                fail_silently=False,
+            )
+        except Exception as exc:
+            logger.error("onboarding_email_failed", extra={"user_id": user.id, "email": user.email, "error": str(exc)})
+
+    # WhatsApp opcional
+    phone = getattr(user, "phone", "") or ""
+    webhook = os.getenv("WHATSAPP_WEBHOOK_URL")
+    if phone and webhook:
+        msg = f"Accedé a tu cuenta: {link}"
+        if otp:
+            msg += f" | Código: {otp}"
+        try:
+            requests.post(webhook, json={"to": phone, "message": msg}, timeout=5)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("onboarding_whatsapp_failed", extra={"user_id": user.id, "phone": phone, "error": str(exc)})
+    return otp
+
+
 class EmailLoginView(APIView):
     """
     Endpoint de login compatible con el frontend mock (/auth/login).
     Permite iniciar sesión por email (o DNI como fallback) y devuelve access/refresh + datos de usuario.
     """
     permission_classes = [AllowAny]
+    throttle_scope = "login"
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
@@ -104,14 +169,29 @@ class EmailLoginView(APIView):
 
         if not user.check_password(password):
             return Response({"detail": "Credenciales inválidas."}, status=status.HTTP_401_UNAUTHORIZED)
+        if not user.is_active:
+            return Response({"detail": "La cuenta está inactiva. Contactá al administrador."}, status=status.HTTP_403_FORBIDDEN)
 
         # Doble verificación para staff/admin
         if user.is_staff:
             cache_key = f"admin_otp:{user.id}"
             cached_code = cache.get(cache_key)
+            rate_key = f"admin_otp_rate:{email}"
+            attempts = cache.get(rate_key, 0)
+            max_attempts = 5
+            cooldown = 600  # 10 minutos
 
             if otp:
                 if not cached_code or otp != cached_code:
+                    cache.set(rate_key, attempts + 1, timeout=cooldown)
+                    if attempts + 1 >= max_attempts:
+                        return Response(
+                            {
+                                "detail": "Demasiados intentos. Esperá unos minutos e intentá nuevamente.",
+                                "require_otp": True,
+                            },
+                            status=status.HTTP_429_TOO_MANY_REQUESTS,
+                        )
                     return Response(
                         {
                             "detail": "Código inválido o expirado.",
@@ -123,8 +203,17 @@ class EmailLoginView(APIView):
                     )
                 cache.delete(cache_key)
             else:
+                if attempts >= max_attempts:
+                    return Response(
+                        {
+                            "detail": "Demasiados intentos. Esperá unos minutos e intentá nuevamente.",
+                            "require_otp": True,
+                        },
+                        status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    )
                 code = str(random.randint(100000, 999999))
                 cache.set(cache_key, code, timeout=300)
+                cache.set(rate_key, attempts + 1, timeout=cooldown)
                 _send_email_code(email, code)
                 return Response(
                     {
@@ -153,6 +242,7 @@ class PasswordResetRequestView(views.APIView):
 
     permission_classes = []
     authentication_classes = []
+    throttle_scope = "reset"
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
@@ -162,7 +252,8 @@ class PasswordResetRequestView(views.APIView):
         try:
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
-            return response.Response({"detail": "El email no está registrado."}, status=status.HTTP_404_NOT_FOUND)
+            # Respuesta ciega para no permitir enumeración de correos.
+            return response.Response({"detail": "Te enviamos un correo con instrucciones."}, status=status.HTTP_200_OK)
 
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = PasswordResetTokenGenerator().make_token(user)
@@ -199,6 +290,7 @@ class PasswordResetConfirmView(views.APIView):
 
     permission_classes = []
     authentication_classes = []
+    throttle_scope = "reset"
 
     def post(self, request):
         uidb64 = request.data.get("uid")
@@ -229,6 +321,7 @@ class RegisterView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_scope = "register"
 
     def post(self, request):
         data = request.data or {}
@@ -242,6 +335,17 @@ class RegisterView(APIView):
 
         if not email or not dni or not password:
             return Response({"detail": "Email, DNI y contraseña son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_email(email)
+        except ValidationError:
+            return Response({"detail": "Email inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(password) < 8 or password.isalpha() or password.isdigit():
+            return Response(
+                {"detail": "La contraseña debe tener mínimo 8 caracteres e incluir letras y números."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if User.objects.filter(email__iexact=email).exists():
             return Response({"detail": "El email ya está registrado."}, status=status.HTTP_400_BAD_REQUEST)
@@ -267,3 +371,103 @@ class RegisterView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class LogoutView(APIView):
+    """
+    Endpoint de logout para el front.
+    No invalida JWT (no hay blacklist configurado); responde 200 para que el cliente limpie sesión.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        return Response({"detail": "Sesión cerrada."}, status=status.HTTP_200_OK)
+
+
+class GoogleLoginView(APIView):
+    """
+    Stub de login con Google. Si no está habilitado por entorno, responde 501.
+    Para habilitarlo de verdad, configurar la verificación del id_token y generar tokens JWT.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        enabled = _bool(os.getenv("ENABLE_GOOGLE_LOGIN") or os.getenv("VITE_ENABLE_GOOGLE"))
+        if not enabled:
+            return Response({"detail": "Login con Google no habilitado en el backend."}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+        id_token = (request.data.get("id_token") or "").strip()
+        if not id_token:
+            return Response({"detail": "Falta id_token de Google."}, status=status.HTTP_400_BAD_REQUEST)
+
+        client_id = os.getenv("GOOGLE_CLIENT_ID") or os.getenv("VITE_GOOGLE_CLIENT_ID")
+        if not client_id:
+            return Response(
+                {"detail": "GOOGLE_CLIENT_ID no está definido, no se puede validar Google Login."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        try:
+            resp = requests.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"id_token": id_token},
+                timeout=5,
+            )
+            data = resp.json()
+        except Exception as exc:  # pragma: no cover - red externa
+            return Response({"detail": f"No se pudo validar el token de Google: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if resp.status_code != 200:
+            return Response({"detail": "Token de Google inválido o expirado."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        aud = data.get("aud")
+        if client_id and aud != client_id:
+            return Response({"detail": "El token no corresponde a este cliente de Google."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        issuer = (data.get("iss") or "").lower()
+        if issuer not in ("https://accounts.google.com", "accounts.google.com"):
+            return Response({"detail": "Issuer inválido en el token de Google."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        email = (data.get("email") or "").strip().lower()
+        email_verified = str(data.get("email_verified", "")).lower() in ("1", "true", "yes")
+        if not email or not email_verified:
+            return Response({"detail": "Google no devolvió un email verificado."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email__iexact=email).first()
+        if not user:
+            return Response(
+                {"detail": "No existe un usuario con ese email. Registrate primero y luego podrás usar Google."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        data = {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": UserSerializer(user).data,
+        }
+        return Response(data)
+
+
+class ResendOnboardingView(APIView):
+    """
+    Admin: reenvía link de acceso + OTP por email y opcional WhatsApp.
+    Acepta user_id o email en el payload.
+    """
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        uid = request.data.get("user_id")
+        email = (request.data.get("email") or "").strip().lower()
+        user = None
+        if uid:
+            user = User.objects.filter(id=uid).first()
+        if not user and email:
+            user = User.objects.filter(email__iexact=email).first()
+        if not user:
+            return Response({"detail": "Usuario no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        otp = _send_onboarding(user, send_otp=True)
+        detail = "Enviamos el link de acceso."
+        if otp:
+            detail += " Incluimos un código de 6 dígitos (10 minutos)."
+        return Response({"detail": detail})

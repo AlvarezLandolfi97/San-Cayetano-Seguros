@@ -69,9 +69,33 @@ export function AuthProvider({ children }) {
   }
 
   // ------ acciones públicas ------
+  async function resolveLoginIdentifier(rawInput) {
+    const input = (rawInput || "").toString().trim();
+    if (!input) throw new Error("Email o DNI requerido.");
+    if (!input.includes("@")) {
+      return input;
+    }
+
+    try {
+      const { data } = await api.get("/users/lookup", {
+        params: { email: input.toLowerCase() },
+      });
+      return data?.dni || input;
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        return input;
+      }
+      throw err;
+    }
+  }
+
   async function login({ email, password, otp }) {
-    // adapta la URL a tu backend
-    const { data } = await api.post("/auth/login", { email, password, otp });
+    const identifier = await resolveLoginIdentifier(email);
+    const { data } = await api.post("/auth/login", {
+      email: identifier,
+      password,
+      otp,
+    });
     // Si el backend pide 2FA, devolvemos bandera y no seteamos sesión
     if (data?.require_otp) {
       return {

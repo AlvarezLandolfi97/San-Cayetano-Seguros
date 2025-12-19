@@ -21,11 +21,13 @@ class QuoteView(APIView):
         vtype = s.validated_data['vtype']
         year = s.validated_data['year']
 
-        # Filtra productos compatibles con el tipo y año del vehículo
+        # Filtra productos compatibles con el tipo/año y que estén vigentes y publicados
         qs = Product.objects.filter(
             vehicle_type=vtype,
             min_year__lte=year,
-            max_year__gte=year
+            max_year__gte=year,
+            is_active=True,
+            published_home=True,
         )
 
         # Calcula el factor por antigüedad del vehículo

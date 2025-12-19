@@ -99,10 +99,11 @@ export default function Users() {
   }, [assignedIds, availablePolicies]);
 
   async function fetchUsers() {
-    setLoading(true); setErr("");
+    setLoading(true);
+    setErr("");
     try {
-      const { data } = await api.get("/admin/users");
-      const arr = (data || []).map((u) => ({
+      const list = await fetchAllUsers();
+      const arr = list.map((u) => ({
         ...u,
         status: u.is_active === false ? "deleted" : (u.status || "active"),
         raw_status: u.is_active === false ? "deleted" : (u.status || "active"),
@@ -110,7 +111,9 @@ export default function Users() {
       setRows(arr);
     } catch (e) {
       setErr(e?.response?.data?.detail || "No se pudieron cargar los usuarios.");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function fetchPoliciesList() {
@@ -127,6 +130,28 @@ export default function Users() {
     fetchUsers();
     fetchPoliciesList();
   }, []);
+
+  async function fetchAllUsers() {
+    const pageSize = 200;
+    let page = 1;
+    const result = [];
+    while (true) {
+      const { data } = await api.get("/admin/users", {
+        params: { page, page_size: pageSize },
+      });
+      const list = Array.isArray(data?.results)
+        ? data.results
+        : Array.isArray(data)
+        ? data
+        : [];
+      if (!list.length) break;
+      result.push(...list);
+      if (!data?.next && !Array.isArray(data)) break;
+      if (list.length < pageSize) break;
+      page += 1;
+    }
+    return result;
+  }
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -158,17 +183,6 @@ export default function Users() {
       }),
     [rows, availablePolicies]
   );
-
-  function openCreate() {
-    setManageModal({
-      open: true,
-      row: { id: null },
-      draft: { status: "inactive", email:"", dni:"", first_name:"", last_name:"", dob:"", phone:"", policies: [] },
-      saving: false,
-    });
-    setManualPoliciesInput("");
-    setRemovedPolicies([]);
-  }
 
   function openManage(row) {
     const currentUserPolicies = availablePolicies
@@ -248,7 +262,7 @@ export default function Users() {
       if (inlineDraft.dni) payload.dni = inlineDraft.dni;
       if (inlineDraft.first_name) payload.first_name = inlineDraft.first_name;
       if (inlineDraft.last_name) payload.last_name = inlineDraft.last_name;
-      if (inlineDraft.dob) payload.dob = inlineDraft.dob;
+      if (inlineDraft.dob) payload.birth_date = inlineDraft.dob;
       if (inlineDraft.phone) payload.phone = inlineDraft.phone;
       await api.patch(`/admin/users/${inlineDraft.id}`, payload, { params: { partial: true } });
       await fetchUsers();
@@ -328,7 +342,7 @@ export default function Users() {
       if (manageModal.draft.dni) payload.dni = manageModal.draft.dni;
       if (manageModal.draft.first_name) payload.first_name = manageModal.draft.first_name;
       if (manageModal.draft.last_name) payload.last_name = manageModal.draft.last_name;
-      if (manageModal.draft.dob) payload.dob = manageModal.draft.dob;
+      if (manageModal.draft.dob) payload.birth_date = manageModal.draft.dob;
       if (manageModal.draft.phone) payload.phone = manageModal.draft.phone;
       payload.policy_ids = filteredPolicyIds;
       if (manageModal.row.id) {
@@ -424,9 +438,6 @@ export default function Users() {
       <header className="admin__head">
         <div>
           <h1>Usuarios</h1>
-        </div>
-        <div className="ml-auto align-self-center">
-          <button className="btn btn--primary" onClick={openCreate}>Nuevo usuario</button>
         </div>
       </header>
 

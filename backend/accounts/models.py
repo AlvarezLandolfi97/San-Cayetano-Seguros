@@ -27,6 +27,7 @@ class UserManager(BaseUserManager):
 class User(AbstractUser):
     # Sacamos username y usamos dni como identificador
     username = None
+    email = models.EmailField(unique=True)
 
     dni = models.CharField(max_length=20, unique=True, db_index=True)
     phone = models.CharField(max_length=30, blank=True)

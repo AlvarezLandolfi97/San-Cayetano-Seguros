@@ -9,6 +9,18 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     pagination_class = None  # el admin recibe todos los usuarios sin paginación
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.action == "list" and self.request.user and self.request.user.is_authenticated:
+            return qs.exclude(id=self.request.user.id)
+        return qs
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        # Solo admins pueden manipular policy_ids; /me no debe permitirlo.
+        ctx["allow_policy_ids"] = bool(self.request.user and self.request.user.is_staff and self.action != "me")
+        return ctx
+
     def get_permissions(self):
         """
         - Acciones estándar (list, create, update, delete, retrieve): solo admin.
@@ -16,6 +28,8 @@ class UserViewSet(viewsets.ModelViewSet):
         """
         if self.action == "me":
             return [permissions.IsAuthenticated()]
+        if self.action == "lookup":
+            return [permissions.AllowAny()]
         return [permissions.IsAdminUser()]
 
     @decorators.action(
@@ -40,3 +54,25 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return response.Response(serializer.data, status=status.HTTP_200_OK)
+
+    @decorators.action(
+        detail=False,
+        methods=["get"],
+        url_path="lookup",
+        permission_classes=[permissions.AllowAny],
+    )
+    def lookup(self, request):
+        """
+        Permite obtener el DNI asociado a un email válido (solo lectura).
+        """
+        email = (request.query_params.get("email") or "").strip()
+        if not email:
+            return response.Response(
+                {"detail": "Email requerido."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        user = User.objects.filter(email__iexact=email).first()
+        if not user:
+            return response.Response(
+                {"detail": "Usuario no encontrado."}, status=status.HTTP_404_NOT_FOUND
+            )
+        return response.Response({"dni": user.dni})

@@ -83,12 +83,12 @@ export default function AppRoutes() {
           <Route path="/reset" element={<ResetRequest />} />
           <Route path="/reset/confirm" element={<ResetConfirm />} />
 
-          {/* Pólizas públicas */}
-          <Route path="/policy/:id" element={<PolicyDetail />} />
-          <Route path="/claim-policy" element={<ClaimPolicy />} />
-
           {/* ÁREA PRIVADA */}
           <Route element={<RequireAuth />}>
+            {/* Pólizas (solo usuarios con sesión) */}
+            <Route path="/policy/:id" element={<PolicyDetail />} />
+            <Route path="/claim-policy" element={<ClaimPolicy />} />
+
             {/* Usuario */}
             <Route element={<UserGate />}>
               <Route path="/dashboard" element={<UserDashboardLayout />}>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api } from "@/api";
 import PaymentStatusBadge from "@/components/policy/PaymentStatusBadge";
 import ReceiptList from "@/components/policy/ReceiptList";
@@ -9,16 +9,25 @@ export default function PolicyDetail() {
   const [detail, setDetail] = useState(null);
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(()=>{
     (async ()=>{
       try {
+        setError("");
         const [d, r] = await Promise.all([
           api.get(`/policies/${id}`),
           api.get(`/policies/${id}/receipts`)
         ]);
         setDetail(d.data);
         setReceipts(r.data || []);
+      } catch (e) {
+        const status = e?.response?.status;
+        if (status === 401 || status === 403) {
+          setError("Necesitás iniciar sesión para ver esta póliza.");
+        } else {
+          setError("No pudimos obtener la póliza.");
+        }
       } finally {
         setLoading(false);
       }
@@ -26,6 +35,18 @@ export default function PolicyDetail() {
   },[id]);
 
   if (loading) return null;
+  if (error) {
+    return (
+      <section className="section container">
+        <p>{error}</p>
+        {(error.includes("iniciar sesión")) && (
+          <p>
+            <Link to={`/login`} state={{ from: `/policy/${id}` }}>Ir a iniciar sesión</Link>
+          </p>
+        )}
+      </section>
+    );
+  }
   if (!detail) return <section className="section container"><p>No encontramos la póliza.</p></section>;
 
   return (

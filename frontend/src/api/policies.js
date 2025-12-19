@@ -1,6 +1,6 @@
 import { api } from "@/api";
 
-export async function claimPolicy(code) {
-  const { data } = await api.post("/policies/claim", { code });
+export async function claimPolicy(number) {
+  const { data } = await api.post("/policies/claim", { number });
   return data;
 }

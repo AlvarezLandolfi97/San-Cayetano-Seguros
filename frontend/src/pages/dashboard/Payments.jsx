@@ -39,17 +39,41 @@ export default function Payments() {
 
         const packs = await Promise.all(
           (policies || []).map(async (p) => {
-            const [detRes, pendRes, recRes] = await Promise.all([
+            let detail = null;
+            let pending = [];
+            let receipts = [];
+            let pendingError = "";
+            let pendingHint = "";
+
+            const [detRes, pendRes, recRes] = await Promise.allSettled([
               api.get(`/policies/${p.id}`),
               api.get(`/payments/pending`, { params: { policy_id: p.id } }),
               api.get(`/policies/${p.id}/receipts`),
             ]);
-            const pending = (pendRes.data || []).slice(0, 1);
+
+            if (detRes.status === "fulfilled") detail = detRes.value.data || null;
+            if (pendRes.status === "fulfilled") {
+              pending = (pendRes.value.data || []).slice(0, 1);
+            } else {
+              pendingError =
+                pendRes.reason?.response?.data?.detail ||
+                "No se pudo consultar pagos pendientes para esta póliza.";
+              const detailMsg = pendRes.reason?.response?.data?.detail || "";
+              if (detailMsg.includes("start_date")) {
+                pendingHint = "Falta fecha de inicio. Escribinos para completarla.";
+              } else if (detailMsg.includes("premium")) {
+                pendingHint = "Falta cargar el monto mensual. Contactá soporte para actualizarlo.";
+              }
+            }
+            if (recRes.status === "fulfilled") receipts = recRes.value.data || [];
+
             return {
               policy: p,
-              detail: detRes.data || null,
+              detail,
               pending,
-              receipts: recRes.data || [],
+              pendingError,
+              pendingHint,
+              receipts,
             };
           })
         );
@@ -194,7 +218,7 @@ export default function Payments() {
       </header>
 
       <section className="pay-list">
-        {rows.map(({ policy, detail, pending, receipts }) => {
+        {rows.map(({ policy, detail, pending, pendingError, pendingHint, receipts }) => {
           const ch = pending[0];
           const selectedThis = ch ? selected.has(ch.id) : false;
           const visibleEndDate = policy.client_end_date || policy.end_date;
@@ -256,9 +280,14 @@ export default function Payments() {
                     </div>
                   </label>
                 ) : (
-                  <p className="muted">
-                    No hay pagos pendientes para esta póliza.
-                  </p>
+                  <div className="muted">
+                    <p>{pendingError || "No hay pagos pendientes para esta póliza."}</p>
+                    {pendingHint && <p className="small">{pendingHint}</p>}
+                    <p className="small">
+                      ¿Necesitás ayuda?{" "}
+                      <a href="mailto:hola@sancayetano.com">Contactá soporte</a>.
+                    </p>
+                  </div>
                 )}
               </div>
 

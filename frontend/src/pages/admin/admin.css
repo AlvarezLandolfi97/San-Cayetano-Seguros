@@ -334,14 +334,6 @@ body.admin-page .section {
     background: #eaf2ff;
   }
 }
-@media (min-width: 901px) {
-  .policies-page .card-like.card--expiring {
-    background: #fef2f2;
-    border-color: #fecdd3;
-    box-shadow: 0 10px 22px rgba(185, 28, 28, 0.08);
-  }
-}
-
 /* Vista compacta (mobile) */
 .compact-list {
   display: grid;
@@ -866,6 +858,11 @@ body.admin-page .section {
   border-color: #b91c1c;
   color: #ffffff;
 }
+.countdown-chip--expiring {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
 .card--price-update .countdown-badge,
 .card--price-update .countdown-chip {
   background: #0d47a1;
@@ -1355,12 +1352,22 @@ body.admin-page .section {
 /* ====== Estados ====== */
 .muted { color: #6b7280; }
 .card--expiring {
-  border-color: #fecdd3;
-  background: #fff1f3;
+  border-color: #f87171;
+  background: #fff5f5;
+  box-shadow: 0 12px 30px rgba(248, 113, 113, 0.15);
 }
 .policies-page .card--expiring {
-  border-color: #fecdd3;
-  background: #fff1f3;
+  border-color: #f87171;
+  background: #fff5f5;
+}
+.card--price-update {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.15);
+}
+.policies-page .card--price-update {
+  border-color: #bfdbfe;
+  background: #eff6ff;
 }
 .alert--success {
   border-color: #bbf7d0;

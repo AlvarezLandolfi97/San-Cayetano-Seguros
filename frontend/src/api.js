@@ -70,6 +70,7 @@ api.interceptors.request.use((config) => {
 /* ============== Response interceptor: refresh 401 con cola ============== */
 let isRefreshing = false;
 let queue = [];
+let onErrorGlobal = null;
 
 function flushQueue(error, token = null) {
   queue.forEach(({ resolve, reject }) => (error ? reject(error) : resolve(token)));
@@ -119,6 +120,15 @@ api.interceptors.response.use(
       }
     }
 
+    // Notificación global de error (si hay handler registrado)
+    if (onErrorGlobal) {
+      try {
+        onErrorGlobal(err);
+      } catch {
+        /* noop */
+      }
+    }
+
     throw err;
   }
 );
@@ -134,6 +144,14 @@ export function clearAuth() {
   localStorage.removeItem(LS_ACCESS);
   localStorage.removeItem(LS_REFRESH);
   localStorage.removeItem(LS_USER);
+}
+
+/**
+ * Registra un callback global para errores de API (para mostrar toasts).
+ * @param {(error: any) => void} fn
+ */
+export function setApiErrorHandler(fn) {
+  onErrorGlobal = fn;
 }
 
 export function getAuthUser() {

@@ -1,4 +1,5 @@
 # backend/policies/serializers.py
+import secrets
 from datetime import date
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -198,8 +199,30 @@ class PolicySerializer(serializers.ModelSerializer):
     def _timeline_value(self, obj, key):
         return self.context.get("timeline_map", {}).get(obj.id, {}).get(key)
 
+    def validate(self, attrs):
+        """
+        Requerimos datos mínimos para poder facturar y generar cargos.
+        """
+        data = super().validate(attrs)
+        instance = getattr(self, "instance", None)
+
+        product = data.get("product") or getattr(instance, "product", None)
+        if not product:
+            raise ValidationError({"product_id": "Seleccioná un producto."})
+
+        premium = data.get("premium", getattr(instance, "premium", None))
+        if premium is None:
+            raise ValidationError({"premium": "Indicá el premio mensual (premium)."})
+
+        start_date = data.get("start_date", getattr(instance, "start_date", None))
+        if not start_date:
+            raise ValidationError({"start_date": "Definí la fecha de inicio de vigencia."})
+
+        return data
+
     def create(self, validated_data):
         validated_data = self._ensure_number(validated_data)
+        validated_data = self._ensure_claim_code(validated_data)
         vehicle_data = self._clean_vehicle_data(validated_data.pop("vehicle", None))
         policy = super().create(validated_data)
         regenerate_installments(policy)
@@ -209,6 +232,7 @@ class PolicySerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         validated_data = self._ensure_number(validated_data, allow_keep=True, instance=instance)
+        validated_data = self._ensure_claim_code(validated_data, instance=instance)
         vehicle_data = self._clean_vehicle_data(validated_data.pop("vehicle", None))
         policy = super().update(instance, validated_data)
         # Si cambia vigencia o precio mensual regeneramos cuotas
@@ -269,6 +293,27 @@ class PolicySerializer(serializers.ModelSerializer):
             return validated_data
         validated_data["number"] = self._generate_number()
         return validated_data
+
+    def _ensure_claim_code(self, validated_data, instance=None):
+        """
+        Genera claim_code si no existe para evitar pólizas sin código de asociación.
+        """
+        code = validated_data.get("claim_code", None)
+        if code:
+            return validated_data
+        current = getattr(instance, "claim_code", None)
+        if current:
+            validated_data.pop("claim_code", None)
+            return validated_data
+        validated_data["claim_code"] = self._generate_claim_code()
+        return validated_data
+
+    def _generate_claim_code(self):
+        for _ in range(5):
+            candidate = f"SC-{secrets.token_hex(3).upper()}"
+            if not Policy.objects.filter(claim_code__iexact=candidate).exists():
+                return candidate
+        return f"SC-{secrets.token_hex(4).upper()}"
 
 
 class PolicyClientListSerializer(serializers.ModelSerializer):

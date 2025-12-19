@@ -73,9 +73,8 @@ export default function AdminHome() {
 
         // expiring
         try {
-          const { data } = await api.get("/admin/policies");
-          const arr = (Array.isArray(data?.results) ? data.results : data) || [];
-          const count = arr.filter((p) => {
+          const list = await fetchAllPolicies();
+          const count = list.filter((p) => {
             const realEndDiff = daysUntil(p.real_end_date || p.end_date);
             const clientDiff = daysUntil(p.client_end_date || p.end_date);
             const statusDerived = deriveStatus(p.status, p.real_end_date || p.end_date);
@@ -83,7 +82,7 @@ export default function AdminHome() {
             return statusDerived === "active" && clientDiff < 0 && realEndDiff >= 0;
           }).length;
           setExpiringCount(count);
-          const priceToUpdate = arr.filter((p) => {
+          const priceToUpdate = list.filter((p) => {
             const startDiff = daysUntil(p.price_update_from);
             const endDiff = daysUntil(p.price_update_to);
             const inWindow = Number.isFinite(startDiff) && startDiff <= 0 && (!Number.isFinite(endDiff) || endDiff >= 0);
@@ -101,7 +100,29 @@ export default function AdminHome() {
         setLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function fetchAllPolicies() {
+    const pageSize = 100;
+    let page = 1;
+    const accumulated = [];
+    while (true) {
+      const { data } = await api.get("/admin/policies", {
+        params: { page, page_size: pageSize },
+      });
+      const list = Array.isArray(data?.results)
+        ? data.results
+        : Array.isArray(data)
+        ? data
+        : [];
+      if (!list.length) break;
+      accumulated.push(...list);
+      if (!data?.next) break;
+      page += 1;
+    }
+    return accumulated;
+  }
 
   async function saveProfile(e) {
     e.preventDefault();

@@ -15,9 +15,9 @@ class UserAdmin(BaseUserAdmin):
         ("Permisos", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
         ("Fechas", {"fields": ("last_login", "date_joined")}),
     )
-    add_fieldsets = (
-        ("Alta de usuario", {
-            "classes": ("wide",),
-            "fields": ("dni", "password1", "password2", "is_staff", "is_superuser"),
-        }),
-    )
+
+    def has_add_permission(self, request):
+        """
+        Prevent admins from creating users through the Django admin UI.
+        """
+        return False

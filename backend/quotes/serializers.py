@@ -15,6 +15,8 @@ class QuoteInputSerializer(serializers.Serializer):
 
 class DataURLImageField(serializers.ImageField):
     data_url_pattern = re.compile(r"^data:(image/\w+);base64,(.+)$")
+    allowed_mimes = {"image/jpeg", "image/png", "image/jpg"}
+    max_bytes = 5 * 1024 * 1024  # 5 MB por imagen
 
     def to_internal_value(self, data):
         if isinstance(data, str):
@@ -22,11 +24,15 @@ class DataURLImageField(serializers.ImageField):
             if not match:
                 raise serializers.ValidationError("Formato de imagen inválido.")
             mime, b64data = match.groups()
+            if mime.lower() not in self.allowed_mimes:
+                raise serializers.ValidationError("Formato no permitido. Usá JPG o PNG.")
             ext = mime.split("/")[-1]
             try:
                 decoded = base64.b64decode(b64data)
             except (base64.binascii.Error, ValueError):
                 raise serializers.ValidationError("No se pudo decodificar la imagen.")
+            if len(decoded) > self.max_bytes:
+                raise serializers.ValidationError("La imagen supera el límite de 5MB.")
             data = ContentFile(decoded, name=f"upload.{ext}")
         return super().to_internal_value(data)
 

@@ -1,5 +1,5 @@
 # backend/policies/views.py
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,6 +20,7 @@ from .billing import (
     refresh_installment_statuses,
     update_policy_status_from_installments,
 )
+import os
 import secrets
 import string
 from datetime import date
@@ -29,6 +30,10 @@ from calendar import monthrange
 def _gen_claim_code(length=8):
     alphabet = string.ascii_uppercase + string.digits
     return "SC-" + "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _env_bool(val):
+    return str(val).strip().lower() in ("1", "true", "t", "yes", "y", "on") if val is not None else False
 
 
 def _policy_timeline(policy, settings_obj):
@@ -115,6 +120,7 @@ class IsOwnerOrAdmin(permissions.BasePermission):
 
 class PolicyViewSet(viewsets.ModelViewSet):
     serializer_class = PolicySerializer
+    refresh_on_read_default = _env_bool(os.getenv("POLICY_REFRESH_ON_READ"))
 
     def get_queryset(self):
         return (
@@ -140,42 +146,40 @@ class PolicyViewSet(viewsets.ModelViewSet):
         # filtros admin: search por number o plate, solo sin usuario
         q = (request.query_params.get("search") or "").strip()
         if q:
-            qs = qs.filter(number__icontains=q) | qs.filter(vehicle__plate__icontains=q)
+            qs = qs.filter(Q(number__icontains=q) | Q(vehicle__plate__icontains=q))
         only_unassigned = (request.query_params.get("only_unassigned") or "").lower() in ("1", "true", "yes")
         if only_unassigned:
             qs = qs.filter(user__isnull=True)
-        # client_end_date derivado
+        refresh_flag = (request.query_params.get("refresh") or "").lower() in ("1", "true", "yes")
+        allow_refresh = refresh_flag or self.refresh_on_read_default
+        # client_end_date derivado solo sobre la página actual para evitar cargas masivas
         settings_obj = AppSettings.get_solo()
-        policies = list(qs)
-        for policy in policies:
-            if not policy.installments.exists() and policy.start_date:
-                regenerate_installments(policy)
-            refresh_installment_statuses(policy.installments.all(), persist=True)
-            update_policy_status_from_installments(policy, policy.installments.all(), persist=True)
+        page = self.paginate_queryset(qs)
+        policies = list(page or qs)
+        if allow_refresh:
+            for policy in policies:
+                if not policy.installments.exists() and policy.start_date:
+                    regenerate_installments(policy)
+                refresh_installment_statuses(policy.installments.all(), persist=True)
+                update_policy_status_from_installments(policy, policy.installments.all(), persist=True)
         timeline_map = {p.id: _policy_timeline(p, settings_obj) for p in policies}
         serializer = PolicySerializer(policies, many=True, context={"timeline_map": timeline_map})
-        data = serializer.data
-        page = int(request.query_params.get("page") or 1)
-        page_size = int(request.query_params.get("page_size") or 0)
-        if page_size > 0:
-            start = (page - 1) * page_size
-            end = start + page_size
-            return Response({
-                "results": data[start:end],
-                "count": len(data),
-                "page": page,
-                "page_size": page_size,
-            })
-        return Response(data)
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     @action(detail=False, methods=["get"], url_path="my")
     def my(self, request):
         user = request.user
         settings_obj = AppSettings.get_solo()
         policies = list(self.get_queryset().filter(user=user))
-        for policy in policies:
-            refresh_installment_statuses(policy.installments.all(), persist=True)
-            update_policy_status_from_installments(policy, policy.installments.all(), persist=True)
+        refresh_flag = (request.query_params.get("refresh") or "").lower() in ("1", "true", "yes")
+        allow_refresh = refresh_flag or self.refresh_on_read_default
+        if allow_refresh:
+            for policy in policies:
+                refresh_installment_statuses(policy.installments.all(), persist=True)
+                update_policy_status_from_installments(policy, policy.installments.all(), persist=True)
         timeline_map = {p.id: _policy_timeline(p, settings_obj) for p in policies}
         serializer = PolicyClientListSerializer(
             policies,
@@ -202,8 +206,11 @@ class PolicyViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         self.check_object_permissions(request, obj)
         settings_obj = AppSettings.get_solo()
-        refresh_installment_statuses(obj.installments.all(), persist=True)
-        update_policy_status_from_installments(obj, obj.installments.all(), persist=True)
+        refresh_flag = (request.query_params.get("refresh") or "").lower() in ("1", "true", "yes")
+        allow_refresh = refresh_flag or self.refresh_on_read_default
+        if allow_refresh:
+            refresh_installment_statuses(obj.installments.all(), persist=True)
+            update_policy_status_from_installments(obj, obj.installments.all(), persist=True)
         timeline = _policy_timeline(obj, settings_obj)
         serializer = PolicyClientDetailSerializer(
             obj, context={"timeline_map": {obj.id: timeline}}
@@ -229,24 +236,27 @@ class PolicyViewSet(viewsets.ModelViewSet):
     def claim(self, request):
         number = (request.data.get("number") or request.data.get("code") or "").strip()
         if not number:
-            return Response({"detail": "Ingresá un número de póliza válido."}, status=400)
+            return Response(
+                {"detail": "Ingresá el número de póliza que te compartieron."},
+                status=400,
+            )
+        lookup = number.upper()
         try:
-            policy = Policy.objects.select_related("vehicle", "product").get(number__iexact=number)
+            policy = Policy.objects.select_related("vehicle", "product").get(
+                number__iexact=lookup
+            )
         except Policy.DoesNotExist:
-            return Response({"detail": "No encontramos una póliza con ese número. Revisá e intentá de nuevo."}, status=404)
+            return Response(
+                {"detail": "Póliza no encontrada. Verificá el número con tu asesor."},
+                status=404,
+            )
 
-        # Ya asociada con el mismo usuario
-        if policy.user_id == request.user.id:
-            return Response({"detail": "Esta póliza ya está asociada a tu cuenta."}, status=400)
-
-        # Asociada a otra persona
         if policy.user_id and policy.user_id != request.user.id:
-            return Response({"detail": "Esta póliza ya pertenece a otro usuario."}, status=400)
+            return Response(
+                {"detail": "Esta póliza ya pertenece a otro usuario."},
+                status=400,
+            )
 
-        policy.user = request.user
-        if not policy.claim_code:
-            policy.claim_code = _gen_claim_code()
-        policy.save(update_fields=["user", "claim_code", "updated_at"])
         product = policy.product
         vehicle = getattr(policy, "vehicle", None)
         payload = {
@@ -258,7 +268,38 @@ class PolicyViewSet(viewsets.ModelViewSet):
             "status_readable": "Activa" if policy.status == "active" else policy.status,
             "plate": getattr(vehicle, "plate", None),
         }
+
+        if policy.user_id == request.user.id:
+            return Response(
+                {
+                    "message": "Esta póliza ya está asociada a tu cuenta.",
+                    "policy": payload,
+                }
+            )
+
+        policy.user = request.user
+        policy.save(update_fields=["user", "updated_at"])
         return Response({"message": "¡Póliza asociada!", "policy": payload})
+
+    def get_throttles(self):
+        if self.action == "claim":
+            self.throttle_scope = "claim"
+        elif hasattr(self, "throttle_scope"):
+            delattr(self, "throttle_scope")
+        return super().get_throttles()
+
+    @action(detail=True, methods=["post"], url_path="regenerate-claim")
+    def regenerate_claim(self, request, pk=None):
+        """
+        Admin: genera un nuevo claim_code para la póliza y lo devuelve.
+        """
+        policy = self.get_object()
+        self.check_object_permissions(request, policy)
+        if not request.user.is_staff:
+            return Response({"detail": "Solo admins."}, status=403)
+        policy.claim_code = _gen_claim_code()
+        policy.save(update_fields=["claim_code", "updated_at"])
+        return Response({"claim_code": policy.claim_code})
 
     def _apply_default_end_date(self, serializer):
         """

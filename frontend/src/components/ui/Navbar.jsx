@@ -237,7 +237,6 @@ export default function Navbar() {
                     Cotizar
                   </NavLink>
                 </li>
-
                 {isLoggedIn ? (
                   <li>
                     <NavLink to="/dashboard/seguro" className={linkClass("panel")}>

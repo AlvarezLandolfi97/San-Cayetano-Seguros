@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from django.utils import timezone
 from decimal import Decimal
 from typing import Iterable, List, Optional, Sequence
 
@@ -234,6 +235,34 @@ def next_price_update_window(
         return None, None
 
     return next_start - timedelta(days=offset_days), next_start - timedelta(days=1)
+
+
+def mark_cycle_installment_paid(
+    policy: Policy,
+    payment=None,
+    *,
+    today: Optional[date] = None,
+) -> Optional[PolicyInstallment]:
+    """
+    Marca la cuota correspondiente al ciclo vigente como pagada y la asocia
+    al Payment recibido. Si no hay cuota del ciclo, toma la primera pendiente.
+    """
+    today = today or date.today()
+    settings_obj = AppSettings.get_solo()
+    cycle = current_payment_cycle(policy, settings_obj, today=today) or {}
+    period_start = cycle.get("period_start")
+    qs = policy.installments.all()
+    target = None
+    if period_start:
+        target = qs.filter(period_start_date=period_start).order_by("sequence").first()
+    if not target:
+        target = qs.filter(status__in=[PolicyInstallment.Status.PENDING, PolicyInstallment.Status.NEAR_DUE]).order_by("sequence").first()
+    if not target:
+        target = qs.filter(status=PolicyInstallment.Status.EXPIRED).order_by("sequence").first()
+    if not target:
+        return None
+    target.mark_paid(payment=payment, when=timezone.now())
+    return target
 
 
 def refresh_installment_statuses(installments: Iterable[PolicyInstallment], *, persist: bool = False) -> None:

@@ -1,32 +1,54 @@
-import { useState } from "react";
-import { api } from "@/api";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { claimPolicy } from "@/api/policies";
+import useAuth from "@/hooks/useAuth";
 
 export default function ClaimPolicy() {
-  const [code, setCode] = useState("");
+  const { user, loading: authLoading } = useAuth();
+  const nav = useNavigate();
+  const location = useLocation();
+  const [policyNumber, setPolicyNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState({ type: "", text: "" });
   const [claimed, setClaimed] = useState(null);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      nav("/login", { replace: true, state: { from: location.pathname } });
+    }
+  }, [authLoading, user, nav, location.pathname]);
+
+  // Evita parpadeos mientras redirige al login
+  if (!authLoading && !user) return null;
 
   async function onSubmit(e) {
     e.preventDefault();
     setMsg({ type: "", text: "" });
     setClaimed(null);
 
-    const trimmed = code.trim().toUpperCase();
-    if (!/^[A-Z0-9\-]{6,}$/.test(trimmed)) {
-      return setMsg({ type: "error", text: "Ingresá un código válido." });
+    const trimmed = policyNumber.trim();
+    if (!trimmed) {
+      return setMsg({
+        type: "error",
+        text: "Ingresá el número de póliza que te compartieron.",
+      });
     }
 
     try {
       setLoading(true);
-      const { data } = await api.post("/policies/claim", { code: trimmed });
+      const { data } = await claimPolicy(trimmed);
       setClaimed(data?.policy || null);
       setMsg({
         type: "success",
         text: "¡Póliza asociada con éxito a tu cuenta!",
       });
-      setCode("");
+      setPolicyNumber("");
     } catch (e) {
+      const status = e?.response?.status;
+      if (status === 401 || status === 403) {
+        nav("/login", { replace: true, state: { from: location.pathname } });
+        return;
+      }
       const detail =
         e?.response?.data?.detail ||
         e?.response?.data?.error ||
@@ -43,8 +65,8 @@ export default function ClaimPolicy() {
         <div>
           <h1 className="user-page__title">Asociar póliza</h1>
           <p className="user-page__subtitle">
-            Ingresá el código de asociación que te compartieron para vincular
-            la póliza a tu cuenta.
+            Ingresá el número de póliza que te compartieron para vincularla a tu
+            cuenta.
           </p>
         </div>
       </header>
@@ -63,20 +85,20 @@ export default function ClaimPolicy() {
 
         <form onSubmit={onSubmit} className="form claim-form" noValidate>
           <div className="field">
-            <label htmlFor="code" className="required">
-              Código de asociación
+            <label htmlFor="policy-number" className="required">
+              Número de póliza
             </label>
             <input
-              id="code"
-              name="code"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="Ej: SC-7K3Q9F"
+              id="policy-number"
+              name="policy-number"
+              value={policyNumber}
+              onChange={(e) => setPolicyNumber(e.target.value)}
+              placeholder="Ej: 45132011"
               autoFocus
               required
             />
             <small className="hint">
-              Lo genera el administrador al crear la póliza.
+              El número te lo comparte el dueño una vez que crea la póliza.
             </small>
           </div>
 

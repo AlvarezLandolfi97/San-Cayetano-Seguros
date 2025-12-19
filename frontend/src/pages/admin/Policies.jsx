@@ -282,6 +282,9 @@ const MONTHS_ES = [
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ];
 const PAGE_SIZE = 10;
+const SECTION_MAX_PAGES = 5;
+const SECTION_MAX_ITEMS = SECTION_MAX_PAGES * PAGE_SIZE;
+const ADMIN_FETCH_PAGE_SIZE = 200;
 
 function priceUpdateWindowLabel(row, offsetDays) {
   const { from, to } = priceWindow(row, offsetDays);
@@ -304,6 +307,29 @@ function priceUpdateDaysLeft(row, offsetDays) {
   return Math.max(days, 0);
 }
 
+async function fetchAdminPolicies({ pageSize = ADMIN_FETCH_PAGE_SIZE } = {}) {
+  const all = [];
+  let page = 1;
+  while (true) {
+    const { data } = await api.get("/admin/policies", {
+      params: { page, page_size: pageSize },
+    });
+    const arr = Array.isArray(data?.results)
+      ? data.results
+      : Array.isArray(data)
+        ? data
+        : [];
+    if (!arr.length && !Array.isArray(data?.results)) {
+      break;
+    }
+    all.push(...arr);
+    const isPaginated = Array.isArray(data?.results);
+    if (!isPaginated || !data?.next) break;
+    page += 1;
+  }
+  return all;
+}
+
 const INSTALLMENT_STATUS_LABEL = {
   pending: "En pago normal",
   near_due: "Próxima a vencer",
@@ -320,6 +346,22 @@ function normalizeInstallment(inst, policy) {
     __daysLeftReal: Number.isFinite(daysLeft) ? daysLeft : null,
     __policy: policy,
   };
+}
+
+function currentInstallmentInfo(row) {
+  const inst = nextInstallment(row);
+  if (!inst) return null;
+  const status = inst?.effective_status || inst?.status || "pending";
+  const label = INSTALLMENT_STATUS_LABEL[status] || status;
+  const due = inst?.due_date_real || inst?.due_date_display || inst?.payment_window_end;
+  const badgeClass =
+    {
+      paid: "status--active",
+      pending: "status--default",
+      near_due: "status--suspended",
+      expired: "status--expired",
+    }[status] || "status--default";
+  return { label, due, status, badgeClass };
 }
 
 function inDateWindow(startStr, endStr) {
@@ -343,6 +385,8 @@ export default function Policies() {
   const [paymentWindowDays, setPaymentWindowDays] = useState(null);
   const [priceUpdateOffsetDays, setPriceUpdateOffsetDays] = useState(null);
   const [page, setPage] = useState(1);
+  const [expiringPage, setExpiringPage] = useState(1);
+  const [priceUpdatePage, setPriceUpdatePage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("");
 
   // combos
@@ -364,6 +408,7 @@ export default function Policies() {
   const [manageModal, setManageModal] = useState({ open: false, row: null, draft: null, saving: false });
   const [manualPaying, setManualPaying] = useState(false);
   const [manualPaymentQueued, setManualPaymentQueued] = useState(false);
+  const [inlinePaymentQueued, setInlinePaymentQueued] = useState(false);
   const [manageErrors, setManageErrors] = useState({});
   const [inlineSaving, setInlineSaving] = useState(false);
   const [inlineErrors, setInlineErrors] = useState({});
@@ -371,20 +416,22 @@ export default function Policies() {
   const [inlineDraft, setInlineDraft] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, row: null, loading: false });
   const [restoreConfirm, setRestoreConfirm] = useState({ open: false, row: null, loading: false });
+  const [charges, setCharges] = useState([]);
+  const [receipts, setReceipts] = useState([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentsError, setPaymentsError] = useState("");
   const [showArchived, setShowArchived] = useState(false);
 
   // preferencias admin
   const [defaultTerm, setDefaultTerm] = useState(3);
   const [dueDayDisplay, setDueDayDisplay] = useState(null);
-  const [clientOffsetDays, setClientOffsetDays] = useState(null);
 
   async function fetchPolicies() {
     setLoading(true);
     setErr("");
     try {
-      const { data } = await api.get("/admin/policies");
-      const arr = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
-      setRows(arr.map((r) => ({ ...r, status: deriveStatus(r.status, visibleEndDate(r)) })));
+      const all = await fetchAdminPolicies();
+      setRows(all.map((r) => ({ ...r, status: deriveStatus(r.status, visibleEndDate(r)) })));
     } catch (e) {
       setErr(e?.response?.data?.detail || "No se pudieron cargar pólizas.");
     } finally {
@@ -446,8 +493,6 @@ export default function Policies() {
       const displayDay = Number(readMaybe(s, ["payment_due_day_display", "paymentDueDayDisplay"]));
       if (Number.isFinite(displayDay) && displayDay > 0) setDueDayDisplay(displayDay);
 
-      const offset = Number(readMaybe(s, ["client_expiration_offset_days", "clientExpirationOffsetDays"]));
-      if (Number.isFinite(offset) && offset >= 0) setClientOffsetDays(offset);
     } catch {
       // defaults silenciosos
     }
@@ -493,9 +538,9 @@ export default function Policies() {
   const activeFiltered = useMemo(() => filtered.filter((r) => r.status !== "inactive"), [filtered]);
   const archivedFiltered = useMemo(() => filtered.filter((r) => r.status === "inactive"), [filtered]);
 
-  const { expiring, others } = useMemo(() => {
+  const EXPIRING_MAX_DAYS = 30;
+  const expiring = useMemo(() => {
     const exp = [];
-    const rest = [];
 
     for (const p of activeFiltered) {
       const realEndDiff = daysUntil(p.real_end_date || p.end_date);
@@ -518,26 +563,43 @@ export default function Policies() {
 
       const windowEndedOrPrevious = windowEnded || prevWindowEnded;
 
+      const nearDueWindow =
+        p.status === "active" &&
+        !p.has_paid_in_window &&
+        policyStarted &&
+        Number.isFinite(paymentEndDiff) &&
+        paymentEndDiff >= 0 &&
+        paymentEndDiff <= EXPIRING_MAX_DAYS &&
+        !windowEnded;
+
       const unpaidAfterWindow =
         p.status === "active" &&
         !p.has_paid_in_window &&
         windowEndedOrPrevious &&
         clientDiff < 0 &&
-        realEndDiff >= 0;
+        realEndDiff >= 0 &&
+        realEndDiff <= EXPIRING_MAX_DAYS;
 
-      if (unpaidAfterWindow) exp.push({ ...p, __daysLeft: realEndDiff });
-      else rest.push(p);
+      if (nearDueWindow || unpaidAfterWindow) {
+        const daysLeft = nearDueWindow ? paymentEndDiff : realEndDiff;
+        const normalizedDays = Number.isFinite(daysLeft) ? Math.max(0, daysLeft) : 0;
+        exp.push({ ...p, __daysLeft: normalizedDays });
+      }
     }
 
     exp.sort((a, b) => (a.__daysLeft ?? 9999) - (b.__daysLeft ?? 9999));
-    rest.sort((a, b) => {
+    return exp;
+  }, [activeFiltered, paymentWindowDays, dueDayDisplay]);
+
+  const sortedActive = useMemo(() => {
+    const list = [...activeFiltered];
+    list.sort((a, b) => {
       const da = new Date((a.end_date || "9999-12-31") + "T00:00:00");
       const db = new Date((b.end_date || "9999-12-31") + "T00:00:00");
       return da - db;
     });
-
-    return { expiring: exp, others: rest };
-  }, [activeFiltered, paymentWindowDays, dueDayDisplay]);
+    return list;
+  }, [activeFiltered]);
 
   const priceUpdates = useMemo(() => {
     const list = [];
@@ -586,14 +648,32 @@ export default function Policies() {
   }, [installments]);
 
   // ---- PAGINACIÓN ----
-  const currentList = showArchived ? archivedFiltered : [...expiring, ...others];
-  const totalPages = Math.max(1, Math.ceil(currentList.length / PAGE_SIZE));
+  const normalList = sortedActive;
+  const totalPages = Math.max(1, Math.ceil(normalList.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const pageRows = currentList.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageRows = normalList.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const expiringRawPages = Math.max(1, Math.ceil(expiring.length / PAGE_SIZE));
+  const expiringPageCount = Math.min(SECTION_MAX_PAGES, expiringRawPages);
+  const safeExpiringPage = Math.min(expiringPage, expiringPageCount);
+  const expiringPageRows = expiring.slice((safeExpiringPage - 1) * PAGE_SIZE, safeExpiringPage * PAGE_SIZE);
+  const expiringHasOverflow = expiring.length > SECTION_MAX_PAGES * PAGE_SIZE;
+  const priceUpdateRawPages = Math.max(1, Math.ceil(priceUpdates.length / PAGE_SIZE));
+  const priceUpdatePageCount = Math.min(SECTION_MAX_PAGES, priceUpdateRawPages);
+  const safePriceUpdatePage = Math.min(priceUpdatePage, priceUpdatePageCount);
+  const priceUpdatePageRows = priceUpdates.slice((safePriceUpdatePage - 1) * PAGE_SIZE, safePriceUpdatePage * PAGE_SIZE);
+  const priceUpdateHasOverflow = priceUpdates.length > SECTION_MAX_PAGES * PAGE_SIZE;
 
   useEffect(() => {
     setPage(1);
   }, [q, statusFilter, showArchived]);
+
+  useEffect(() => {
+    setExpiringPage(1);
+  }, [expiring.length]);
+
+  useEffect(() => {
+    setPriceUpdatePage(1);
+  }, [priceUpdates.length]);
 
   // --- CRUD/acciones (mantuve tu lógica original; acá sólo ajusté labels/ventanas) ---
   function openCreate() {
@@ -650,6 +730,7 @@ export default function Policies() {
       setExpandedId(null);
       setInlineDraft(null);
       setInlineErrors({});
+      setInlinePaymentQueued(false);
       return;
     }
     setExpandedId(row.id);
@@ -664,6 +745,7 @@ export default function Policies() {
       vehicle: row.vehicle ?? { plate: "", make: "", model: "", version: "", year: "", city: "" },
     });
     setInlineErrors({});
+    setInlinePaymentQueued(false);
   }
 
   function updateInlineDraft(field, value, nestedVehicle = false) {
@@ -710,6 +792,19 @@ export default function Policies() {
       setExpandedId(null);
       setInlineDraft(null);
       setInlineErrors({});
+      if (inlinePaymentQueued) {
+        setManualPaying(true);
+        try {
+          await api.post(`/payments/manual/${inlineDraft.id}/`);
+          setInlinePaymentQueued(false);
+        } catch (e) {
+          alert(e?.response?.data?.detail || "No se pudo registrar el pago manual.");
+          setManualPaying(false);
+          setInlineSaving(false);
+          return;
+        }
+        setManualPaying(false);
+      }
       await fetchPolicies();
     } catch (e) {
       alert(e?.response?.data?.detail || "No se pudo guardar los cambios.");
@@ -829,10 +924,59 @@ export default function Policies() {
     setManualPaymentQueued(false);
     setManageModal({ open: true, row, saving: false, draft: { ...row, user_id: row.user?.id ?? row.user_id ?? null } });
     setManageErrors({});
+    loadPaymentsData(row?.id);
   }
 
   function closeManage() {
     setManageModal({ open: false, row: null, draft: null, saving: false });
+    setCharges([]);
+    setReceipts([]);
+    setPaymentsError("");
+  }
+
+  async function registerManualPaymentNow(policyId) {
+    if (!policyId) return;
+    setManualPaying(true);
+    setErr("");
+    try {
+      await api.post(`/payments/manual/${policyId}/`);
+      await fetchPolicies();
+      // refrescamos modal con datos actualizados
+      const refreshed = rows.find((r) => r.id === policyId);
+      setManageModal((s) => ({
+        ...s,
+        draft: refreshed ? { ...refreshed, user_id: refreshed.user?.id ?? refreshed.user_id ?? null } : s.draft,
+      }));
+      await loadPaymentsData(policyId);
+    } catch (e) {
+      alert(e?.response?.data?.detail || "No se pudo registrar el pago manual.");
+    } finally {
+      setManualPaying(false);
+    }
+  }
+
+  async function loadPaymentsData(policyId) {
+    if (!policyId) {
+      setCharges([]);
+      setReceipts([]);
+      return;
+    }
+    setPaymentsLoading(true);
+    setPaymentsError("");
+    try {
+      const [chargesRes, receiptsRes] = await Promise.all([
+        api.get("/payments/pending", { params: { policy_id: policyId } }),
+        api.get(`/policies/${policyId}/receipts`),
+      ]);
+      const chargesPayload = Array.isArray(chargesRes.data) ? chargesRes.data : Array.isArray(chargesRes.data?.results) ? chargesRes.data.results : [];
+      const receiptsPayload = Array.isArray(receiptsRes.data) ? receiptsRes.data : Array.isArray(receiptsRes.data?.results) ? receiptsRes.data.results : [];
+      setCharges(chargesPayload);
+      setReceipts(receiptsPayload);
+    } catch (err) {
+      setPaymentsError(err?.response?.data?.detail || "No se pudieron cargar cargos o recibos.");
+    } finally {
+      setPaymentsLoading(false);
+    }
   }
 
   function updateManageDraft(field, value, nestedVehicle = false) {
@@ -899,6 +1043,7 @@ export default function Policies() {
         }
         setManualPaying(false);
         setManualPaymentQueued(false);
+        await loadPaymentsData(manageModal.row.id);
       }
       closeManage();
       await fetchPolicies();
@@ -978,42 +1123,6 @@ export default function Policies() {
 
       {err && <div className="alert alert--error">{err}</div>}
 
-
-      <div className="card-like">
-        <div className="pagination pagination--enhanced">
-          <select className="status-filter" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
-            <option value="">Todos</option>
-            <option value="active">Activa</option>
-            <option value="suspended">Suspendida</option>
-            <option value="expired">Vencida</option>
-            <option value="cancelled">Cancelada</option>
-            <option value="inactive">Archivada</option>
-          </select>
-
-          <input
-            className="admin__search"
-            placeholder="Buscar por número de póliza, patente o cliente…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-
-          <div className="pagination__controls">
-            <button className="btn btn--outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
-              Anterior
-            </button>
-            <span className="muted">
-              Página {safePage} de {pageCount}
-            </span>
-            <button className="btn btn--outline" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={safePage >= pageCount}>
-              Siguiente
-            </button>
-            <button className="btn btn--outline btn--icon-only" onClick={fetchPolicies} title="Refrescar">
-              <GearIcon />
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Próximo a vencer */}
       {expiring.length > 0 && (
         <div className="card-like card--expiring">
@@ -1023,7 +1132,7 @@ export default function Policies() {
           </div>
           {compact ? (
             <div className="compact-list">
-              {expiring.map((r) => (
+              {expiringPageRows.map((r) => (
                 <div className="compact-item" key={`exp-${r.id}`}>
                   <div className="compact-main">
                     <div className="compact-text">
@@ -1054,23 +1163,24 @@ export default function Policies() {
                     <th>Seguro</th>
                     <th>Patente</th>
                     <th>Usuario</th>
-                    <th>Vence en</th>
+                    <th>Próximo a vencer</th>
                     <th>Vigencia</th>
                     <th>Cuota</th>
                     <th className="actions-col" aria-label="Acciones"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {expiring.map((r) => (
+                  {expiringPageRows.map((r) => (
                     <tr key={`exp-${r.id}`}>
                       <td>{r.number || `#${r.id}`}</td>
                       <td>{displayProduct(r)}</td>
                       <td>{r.vehicle?.plate || "—"}</td>
                       <td>{displayUser(r)}</td>
                       <td>
-                        <span className="countdown-chip" title={`Faltan ${r.__daysLeft} día(s)`}>
+                        <span className="countdown-chip countdown-chip--expiring" title={`Faltan ${r.__daysLeft} día(s)`}>
                           {r.__daysLeft} día{sPlural(r.__daysLeft)}
                         </span>
+                        <div className="muted small mt-2">Pago en ventana vencido</div>
                       </td>
                       <td className="small">
                         {r.start_date || "—"} → {visibleEndDate(r) || "—"}
@@ -1089,19 +1199,47 @@ export default function Policies() {
               </table>
             </div>
           )}
+          {expiringPageCount > 1 && (
+            <div className="pagination pagination--enhanced pagination--section">
+              <div className="pagination__controls">
+                <button
+                  className="btn btn--outline"
+                  onClick={() => setExpiringPage((p) => Math.max(1, p - 1))}
+                  disabled={safeExpiringPage <= 1}
+                >
+                  Anterior
+                </button>
+                <span className="muted">
+                  Página {safeExpiringPage} de {expiringPageCount}
+                </span>
+                <button
+                  className="btn btn--outline"
+                  onClick={() => setExpiringPage((p) => Math.min(expiringPageCount, p + 1))}
+                  disabled={safeExpiringPage >= expiringPageCount}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
+          {expiringHasOverflow && (
+            <p className="muted small mt-8">
+              Solo se muestran las primeras {SECTION_MAX_ITEMS} pólizas con ventana próxima al vencimiento.
+            </p>
+          )}
         </div>
       )}
 
       {/* Ajuste de precio */}
       {priceUpdates.length > 0 && (
-        <div className="card-like card--price-update">
+        <div className="card-like card--expiring card--price-update">
           <div className="admin__head admin__head--tight">
-            <h3 className="heading-tight m-0">Listas para ajustar precio</h3>
-            <span className="muted small">Dentro de la ventana de ajuste configurada.</span>
+            <h3 className="heading-tight m-0">En ventana de ajuste de precio</h3>
+            <span className="muted small">Se listan pólizas que ya pueden actualizar el valor antes del próximo cobro.</span>
           </div>
           {compact ? (
             <div className="compact-list">
-              {priceUpdates.map((r) => (
+              {priceUpdatePageRows.map((r) => (
                 <div className="compact-item" key={`adj-${r.id}`}>
                   <div className="compact-main">
                     <div className="compact-text">
@@ -1129,22 +1267,24 @@ export default function Policies() {
                     <th>Seguro</th>
                     <th>Patente</th>
                     <th>Usuario</th>
-                    <th className="small">Termina en</th>
+                    <th className="small">Ajustar en</th>
                     <th>Cuota</th>
                     <th className="actions-col" aria-label="Acciones"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {priceUpdates.map((r) => (
+                  {priceUpdatePageRows.map((r) => (
                     <tr key={`adj-${r.id}`}>
                       <td>{r.number || `#${r.id}`}</td>
                       <td>{displayProduct(r)}</td>
                       <td>{r.vehicle?.plate || "—"}</td>
                       <td>{displayUser(r)}</td>
                       <td className="small">
-                        {priceUpdateDaysLeft(r, priceUpdateOffsetDays) != null
-                          ? `${priceUpdateDaysLeft(r, priceUpdateOffsetDays)} día${sPlural(priceUpdateDaysLeft(r, priceUpdateOffsetDays))}`
-                          : "—"}
+                        <span className="countdown-chip" title="Días restantes para ajustar">
+                          {priceUpdateDaysLeft(r, priceUpdateOffsetDays) != null
+                            ? `${priceUpdateDaysLeft(r, priceUpdateOffsetDays)} día${sPlural(priceUpdateDaysLeft(r, priceUpdateOffsetDays))}`
+                            : "—"}
+                        </span>
                       </td>
                       <td>${r.premium ?? "—"}</td>
                       <td>
@@ -1160,11 +1300,69 @@ export default function Policies() {
               </table>
             </div>
           )}
+          {priceUpdatePageCount > 1 && (
+            <div className="pagination pagination--enhanced pagination--section">
+              <div className="pagination__controls">
+                <button
+                  className="btn btn--outline"
+                  onClick={() => setPriceUpdatePage((p) => Math.max(1, p - 1))}
+                  disabled={safePriceUpdatePage <= 1}
+                >
+                  Anterior
+                </button>
+                <span className="muted">
+                  Página {safePriceUpdatePage} de {priceUpdatePageCount}
+                </span>
+                <button
+                  className="btn btn--outline"
+                  onClick={() => setPriceUpdatePage((p) => Math.min(priceUpdatePageCount, p + 1))}
+                  disabled={safePriceUpdatePage >= priceUpdatePageCount}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
+          {priceUpdateHasOverflow && (
+            <p className="muted small mt-8">
+              Solo se muestran las primeras {SECTION_MAX_ITEMS} pólizas en ventana de ajuste.
+            </p>
+          )}
         </div>
       )}
 
-      {/* Tabla general */}
       <div className="card-like">
+        <div className="pagination pagination--enhanced">
+          <select className="status-filter" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
+            <option value="">Todos</option>
+            <option value="active">Activa</option>
+            <option value="suspended">Suspendida</option>
+            <option value="expired">Vencida</option>
+            <option value="cancelled">Cancelada</option>
+            <option value="inactive">Archivada</option>
+          </select>
+
+          <input
+            className="admin__search"
+            placeholder="Buscar por número de póliza, patente o cliente…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+
+          <div className="pagination__controls">
+            <button className="btn btn--outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
+              Anterior
+            </button>
+            <span className="muted">
+              Página {safePage} de {pageCount}
+            </span>
+            <button className="btn btn--outline" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={safePage >= pageCount}>
+              Siguiente
+            </button>
+          </div>
+        </div>
+
+        {/* Tabla general */}
         {compact ? (
           <div className="compact-list">
             {loading ? (
@@ -1276,6 +1474,22 @@ export default function Policies() {
                           }}
                         />
                         {inlineErrors.premium && <small className="field-error">{inlineErrors.premium}</small>}
+                        {r?.id && inPaymentWindow(r, paymentWindowDays, dueDayDisplay) && (
+                          <div className="mt-8">
+                            <button
+                              className="btn btn--subtle"
+                              onClick={() => setInlinePaymentQueued(true)}
+                              disabled={inlinePaymentQueued || inlineSaving}
+                            >
+                              {inlinePaymentQueued ? "Se registrará al guardar" : "Marcar como pagada"}
+                            </button>
+                            {inlinePaymentQueued && (
+                              <div className="muted small mt-4">
+                                Se registrará el pago al guardar los cambios.
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="detail-row">
@@ -1337,11 +1551,11 @@ export default function Policies() {
                       <td>${r.premium ?? "—"}</td>
                       <td>
                         <div className="row-actions">
-                      <button className="btn btn--outline btn--icon-only" onClick={() => openManage(r)} aria-label="Gestionar póliza">
-                        <GearIcon />
-                      </button>
-                    </div>
-                  </td>
+                          <button className="btn btn--outline btn--icon-only" onClick={() => openManage(r)} aria-label="Gestionar póliza">
+                            <GearIcon />
+                          </button>
+                        </div>
+                      </td>
                 </tr>
                   ))
                 )}
@@ -1458,6 +1672,22 @@ export default function Policies() {
                 </div>
 
                 <div className="detail-row">
+                  <div className="detail-label">Cuota del período</div>
+                  <div className="detail-value">
+                    {(() => {
+                      const inst = currentInstallmentInfo(manageModal.row);
+                      if (!inst) return "—";
+                      return (
+                        <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+                          <span className={`badge badge--status ${inst.badgeClass || ""}`}>{inst.label}</span>
+                          {inst.due && <span className="muted small">Venc. real: {inst.due}</span>}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div className="detail-row">
                   <div className="detail-label">Periodo de ajuste</div>
                   <div className="detail-value muted">{priceUpdateWindowLabel(manageModal.row || {}, priceUpdateOffsetDays)}</div>
                 </div>
@@ -1561,6 +1791,64 @@ export default function Policies() {
                   </div>
                   {manageErrors.vehicle_year && <small className="field-error">{manageErrors.vehicle_year}</small>}
                 </div>
+
+                <div className="detail-row">
+                  <div className="detail-label">Cargos pendientes</div>
+                  <div className="detail-value">
+                    {paymentsError && <div className="field-error">{paymentsError}</div>}
+                    {paymentsLoading ? (
+                      <p className="muted small">Cargando cargos…</p>
+                    ) : charges.length ? (
+                      <div className="detail-summary">
+                        {charges.map((ch) => (
+                          <div key={`${ch.id}-${ch.due_date}`} style={{ marginBottom: 8 }}>
+                            <strong>
+                              ${Number(ch.amount || 0).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                            </strong>
+                            <div className="muted small">
+                              {ch.concept || "Cuota"} · Vence {formatIsoDate(ch.due_date)} · Estado: {ch.status}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted small">No hay cargos pendientes registrados.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="detail-row">
+                  <div className="detail-label">Recibos</div>
+                  <div className="detail-value">
+                    {paymentsLoading ? (
+                      <p className="muted small">Cargando comprobantes…</p>
+                    ) : receipts.length ? (
+                      <div className="detail-summary">
+                        {receipts.map((rec) => (
+                          <div key={`receipt-${rec.id}`} style={{ marginBottom: 8 }}>
+                            <div className="muted small">
+                              {formatIsoDate(rec.date)} — {rec.concept || "Pago registrado"}
+                            </div>
+                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                              <strong>
+                                ${Number(rec.amount || 0).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                              </strong>
+                              {rec.file_url ? (
+                                <a className="link small" href={rec.file_url} target="_blank" rel="noreferrer">
+                                  Descargar PDF
+                                </a>
+                              ) : (
+                                <span className="muted small">Sin comprobante</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted small">No hay comprobantes cargados.</p>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1581,9 +1869,20 @@ export default function Policies() {
                   Cancelar
                 </button>
               )}
-              <button className="btn btn--primary" onClick={saveManage} disabled={manageModal.saving}>
-                {manageModal.saving ? "Guardando…" : "Guardar"}
-              </button>
+              <div className="actions actions--row">
+                {manageModal.row?.id && (
+                  <button
+                    className="btn btn--subtle"
+                    onClick={() => registerManualPaymentNow(manageModal.row.id)}
+                    disabled={manualPaying || manageModal.saving}
+                  >
+                    {manualPaying ? "Marcando pago…" : "Marcar como pagada"}
+                  </button>
+                )}
+                <button className="btn btn--primary" onClick={saveManage} disabled={manageModal.saving}>
+                  {manageModal.saving ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
             </div>
           </div>
           <div className="drawer__scrim" onClick={closeManage} />
@@ -1793,4 +2092,12 @@ export default function Policies() {
       )}
     </section>
   );
+}
+
+function formatIsoDate(value) {
+  if (!value) return "—";
+  const parsed = value.includes("T") ? value : `${value}T00:00:00`;
+  const d = new Date(parsed);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
 }

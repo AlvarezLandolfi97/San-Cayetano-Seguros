@@ -13,6 +13,10 @@ import useAuth from "@/hooks/useAuth";
  * - onLoggedIn?: () => void   // opcional, se llama al loguear ok
  */
 export default function GoogleLoginButton({ onErrorMessage, onLoggedIn }) {
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const enabled = googleClientId && import.meta.env.VITE_ENABLE_GOOGLE === "true";
+  if (!enabled) return null;
+
   const { googleLogin } = useAuth();
   const [busy, setBusy] = useState(false);
 

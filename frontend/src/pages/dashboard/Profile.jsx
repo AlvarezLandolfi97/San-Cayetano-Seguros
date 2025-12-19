@@ -12,7 +12,7 @@ export default function Profile() {
     email: user?.email || "",
     phone: user?.phone || "",
     dni: user?.dni || "",
-    dob: user?.dob || "",
+    birth_date: user?.birth_date || user?.dob || "",
   });
 
   const [loading, setLoading] = useState(true);
@@ -32,7 +32,7 @@ export default function Profile() {
           email: data.email || "",
           phone: data.phone || "",
           dni: data.dni || "",
-          dob: data.dob || "",
+          birth_date: data.birth_date || data.dob || "",
         });
       } catch (err) {
         setError("No se pudo cargar tu perfil. Intentá nuevamente.");
@@ -59,7 +59,7 @@ export default function Profile() {
       (form.email || "") !== (user.email || "") ||
       (form.phone || "") !== (user.phone || "") ||
       (form.dni || "") !== (user.dni || "") ||
-      (form.dob || "") !== (user.dob || "")
+      (form.birth_date || "") !== (user.birth_date || user.dob || "")
     );
   }, [form, user]);
 
@@ -68,7 +68,8 @@ export default function Profile() {
     setSaving(true);
     setError("");
     try {
-      const { data } = await api.put("/users/me", form);
+      const payload = { ...form, birth_date: form.birth_date || null };
+      const { data } = await api.put("/users/me", payload);
       setSession({ user: { ...user, ...data } });
       setSaved(true);
     } catch (err) {
@@ -86,7 +87,7 @@ export default function Profile() {
     return `${fn?.[0] || ""}${ln?.[0] || ""}`.toUpperCase();
   }, [form.first_name, form.last_name]);
 
-  const dobValue = form.dob ? form.dob.slice(0, 10) : "";
+  const dobValue = form.birth_date ? form.birth_date.slice(0, 10) : "";
 
   return (
     <section className="policies-page user-page profile-page">
@@ -192,14 +193,13 @@ export default function Profile() {
               </div>
 
               <div className="field">
-                <label htmlFor="dob">Fecha de nacimiento</label>
+                <label htmlFor="birth_date">Fecha de nacimiento</label>
                 <input
-                  id="dob"
-                  name="dob"
+                  id="birth_date"
+                  name="birth_date"
                   type="date"
                   value={dobValue}
-                  disabled
-                  readOnly
+                  onChange={(e) => setField("birth_date", e.target.value)}
                 />
               </div>
             </div>
