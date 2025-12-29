@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { buildWhatsAppLink, cleanPhone } from "@/utils/wa";
 import { saveQuoteShare } from "@/services/quoteShare";
 import { fetchRemoteMakes, fetchRemoteModels, fetchRemoteVersions } from "@/services/vehicleApi";
@@ -424,21 +424,25 @@ export default function Quote() {
       <h1 style={{ marginBottom: 8 }}>Solicitar cotización</h1>
       <p className="muted">Ingresá tus datos y abriremos WhatsApp con un link a tu ficha completa (incluye las fotos).</p>
 
-      {(form.plan_code || form.plan_name) && (
-        <div className="card" style={{ margin: "12px 0 16px", display: "flex", alignItems: "center", gap: 8 }} role="note">
-          <span style={{ background: "#eaf2ff", border: "1px solid #d6e6ff", color: "#0d47a1", fontWeight: 800, padding: "4px 10px", borderRadius: 999, fontSize: ".9rem" }}>
-            {form.plan_code || "Plan"}
-          </span>
-          <strong>{form.plan_name}</strong>
-          <button type="button" className="btn btn--outline" style={{ marginLeft: "auto" }}
-            onClick={() => setForm((f) => ({ ...f, plan_code: "", plan_name: "" }))}>
-            Quitar plan
-          </button>
-          <Link to="/plans" className="btn btn--primary">Ver otros planes</Link>
-        </div>
-      )}
-
       <form onSubmit={onSubmit} className="register-form" noValidate>
+        {(form.plan_code || form.plan_name) && (
+          <div className="form-group plan-field">
+            <label>Seguro seleccionado</label>
+            <div className="plan-field__control" role="note">
+              <span className="plan-field__chip">{form.plan_code || "Plan"}</span>
+              <strong className="plan-field__name">{form.plan_name}</strong>
+              <button
+                type="button"
+                className="btn btn--outline"
+                style={{ marginLeft: "auto" }}
+                onClick={() => setForm((f) => ({ ...f, plan_code: "", plan_name: "" }))}
+              >
+                Quitar plan
+              </button>
+            </div>
+          </div>
+        )}
+
         {err && <div className="register-alert" role="alert" aria-live="assertive" style={{ marginBottom: 8 }}>{err}</div>}
         {/* WhatsApp */}
         <div className="form-group">

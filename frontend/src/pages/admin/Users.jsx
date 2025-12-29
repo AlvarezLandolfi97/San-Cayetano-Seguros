@@ -360,6 +360,12 @@ export default function Users() {
     }
   }
 
+  useEffect(() => {
+    if (!successMsg) return undefined;
+    const timeout = setTimeout(() => setSuccessMsg(""), 2000);
+    return () => clearTimeout(timeout);
+  }, [successMsg]);
+
   function askDeleteUser(row) {
     setDeleteConfirm({ open: true, row, loading: false });
   }
@@ -805,35 +811,39 @@ export default function Users() {
 
       {/* Confirmación de eliminación */}
       {deleteConfirm.open && (
-        <div className="drawer drawer--modal">
-          <div className="drawer__panel drawer__panel--small">
-            <div className="drawer__head">
-              <h2>Eliminar usuario</h2>
-              <button className="drawer__close" onClick={closeDeleteConfirm} aria-label="Cerrar">
-                &times;
+        <div className="modal">
+          <div className="modal__panel">
+            <header className="modal__header">
+              <h3 className="modal__title">Eliminar usuario</h3>
+              <button className="modal__close" onClick={closeDeleteConfirm} aria-label="Cerrar">
+                ×
               </button>
+            </header>
+            <div className="modal__body">
+              <p>
+                ¿Seguro que querés eliminar el usuario{" "}
+                <strong>{deleteConfirm.row?.email || deleteConfirm.row?.id}</strong>?
+                Se marcará como inactivo y podrás recuperarlo luego.
+                {deleteConfirmPolicies.length > 0 && (
+                  <>
+                    {" "}
+                    Tiene {deleteConfirmPolicies.length} póliza(s) asignada(s); quedarán sin usuario asociado.
+                  </>
+                )}
+              </p>
             </div>
-            <p>
-              ¿Seguro que querés eliminar el usuario{" "}
-              <strong>{deleteConfirm.row?.email || deleteConfirm.row?.id}</strong>?
-              Se marcará como inactivo y podrás recuperarlo luego.
-              {deleteConfirmPolicies.length > 0 && (
-                <>
-                  {" "}
-                  Tiene {deleteConfirmPolicies.length} póliza(s) asignada(s); quedarán sin usuario asociado.
-                </>
-              )}
-            </p>
-            <div className="actions">
-              <button className="btn btn--outline" onClick={closeDeleteConfirm} disabled={deleteConfirm.loading}>
-                Cancelar
-              </button>
-              <button className="btn btn--danger" onClick={confirmDeleteUser} disabled={deleteConfirm.loading}>
-                {deleteConfirm.loading ? "Eliminando…" : "Eliminar"}
-              </button>
-            </div>
+            <footer className="modal__footer">
+              <div className="actions actions--end">
+                <button className="btn btn--outline" onClick={closeDeleteConfirm} disabled={deleteConfirm.loading}>
+                  Cancelar
+                </button>
+                <button className="btn btn--danger" onClick={confirmDeleteUser} disabled={deleteConfirm.loading}>
+                  {deleteConfirm.loading ? "Eliminando…" : "Eliminar"}
+                </button>
+              </div>
+            </footer>
           </div>
-          <div className="drawer__scrim" onClick={closeDeleteConfirm} />
+          <div className="modal__scrim" onClick={closeDeleteConfirm} />
         </div>
       )}
     </section>

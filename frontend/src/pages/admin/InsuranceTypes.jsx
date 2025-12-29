@@ -339,55 +339,59 @@ export default function InsuranceTypes() {
       )}
 
       {deleteConfirm.open && (
-        <div className="drawer drawer--modal">
-          <div className="drawer__panel drawer__panel--small">
-            <div className="drawer__head">
-              <h2>Eliminar seguro</h2>
+        <div className="modal">
+          <div className="modal__panel">
+            <header className="modal__header">
+              <h3 className="modal__title">Eliminar seguro</h3>
               <button
-                className="drawer__close"
+                className="modal__close"
                 onClick={() => setDeleteConfirm({ open: false, row: null, loading: false })}
                 aria-label="Cerrar"
               >
-                &times;
+                ×
               </button>
+            </header>
+            <div className="modal__body">
+              <p>
+                ¿Seguro que querés eliminar el seguro{" "}
+                <strong>{deleteConfirm.row?.name || deleteConfirm.row?.id}</strong>?{" "}
+                {policyCountText(deleteConfirm.row)} Se marcará como inactivo y podrás recuperarlo luego.
+              </p>
             </div>
-            <p>
-              ¿Seguro que querés eliminar el seguro{" "}
-              <strong>{deleteConfirm.row?.name || deleteConfirm.row?.id}</strong>?{" "}
-              {policyCountText(deleteConfirm.row)} Se marcará como inactivo y podrás recuperarlo luego.
-            </p>
-            <div className="actions">
-              <button
-                className="btn btn--outline"
-                onClick={() => setDeleteConfirm({ open: false, row: null, loading: false })}
-                disabled={deleteConfirm.loading}
-              >
-                Cancelar
-              </button>
-              <button
-                className="btn btn--danger"
-                onClick={async () => {
-                  if (!deleteConfirm.row?.id) return;
-                  setDeleteConfirm((s) => ({ ...s, loading: true }));
-                  try {
-                    await api.patch(`/admin/insurance-types/${deleteConfirm.row.id}`, { is_active: false });
-                    setDeleteConfirm({ open: false, row: null, loading: false });
-                    setFormOpen(false);
-                    setEditing(null);
-                    await fetchAll();
-                  } catch (e) {
-                    alert(e?.response?.data?.detail || "No se pudo eliminar.");
-                    setDeleteConfirm((s) => ({ ...s, loading: false }));
-                  }
-                }}
-                disabled={deleteConfirm.loading}
-              >
-                {deleteConfirm.loading ? "Eliminando…" : "Eliminar"}
-              </button>
-            </div>
+            <footer className="modal__footer">
+              <div className="actions actions--end">
+                <button
+                  className="btn btn--outline"
+                  onClick={() => setDeleteConfirm({ open: false, row: null, loading: false })}
+                  disabled={deleteConfirm.loading}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="btn btn--danger"
+                  onClick={async () => {
+                    if (!deleteConfirm.row?.id) return;
+                    setDeleteConfirm((s) => ({ ...s, loading: true }));
+                    try {
+                      await api.patch(`/admin/insurance-types/${deleteConfirm.row.id}`, { is_active: false });
+                      setDeleteConfirm({ open: false, row: null, loading: false });
+                      setFormOpen(false);
+                      setEditing(null);
+                      await fetchAll();
+                    } catch (e) {
+                      alert(e?.response?.data?.detail || "No se pudo eliminar.");
+                      setDeleteConfirm((s) => ({ ...s, loading: false }));
+                    }
+                  }}
+                  disabled={deleteConfirm.loading}
+                >
+                  {deleteConfirm.loading ? "Eliminando…" : "Eliminar"}
+                </button>
+              </div>
+            </footer>
           </div>
           <div
-            className="drawer__scrim"
+            className="modal__scrim"
             onClick={() => setDeleteConfirm({ open: false, row: null, loading: false })}
           />
         </div>

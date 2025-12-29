@@ -36,6 +36,12 @@ export default function ContactInfoAdmin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!savedMsg) return undefined;
+    const timeout = setTimeout(() => setSavedMsg(""), 2000);
+    return () => clearTimeout(timeout);
+  }, [savedMsg]);
+
   async function onSave(e) {
     e.preventDefault();
     setSaving(true);

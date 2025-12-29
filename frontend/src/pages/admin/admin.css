@@ -1429,3 +1429,64 @@ body.admin-page .section {
   padding: 16px;
   color: #6b7280;
 }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 60;
+}
+
+.modal__panel {
+  position: relative;
+  width: min(520px, 90vw);
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 24px 28px;
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.18);
+  z-index: 2;
+}
+
+.modal__panel h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.modal__scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.35);
+  z-index: 1;
+}
+
+.modal__panel .actions {
+  margin-top: 18px;
+}
+.modal__close {
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  border: 0;
+  background: linear-gradient(180deg, #ffffff 0%, #f0f4ff 100%);
+  color: #0b3c9f;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 20px 40px rgba(77, 125, 226, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transition: transform .2s ease, box-shadow .2s ease;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+.modal__close:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 45px rgba(77, 125, 226, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+.modal__body {
+  padding-top: 0;
+}

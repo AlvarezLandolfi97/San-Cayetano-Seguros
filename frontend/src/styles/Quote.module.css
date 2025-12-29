@@ -103,6 +103,42 @@
   border-color: #d1d5db;
 }
 
+:global(.plan-field__control) {
+  width: 100%;
+  border: 1px solid #d2ddeb;
+  border-radius: 10px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  min-height: 43px;
+  color: #0c1628;
+  font-size: 1rem;
+  box-shadow: none;
+}
+
+:global(.plan-field__chip) {
+  background: #eaf2ff;
+  border: 1px solid #d6e6ff;
+  color: #0d47a1;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.9rem;
+}
+
+:global(.plan-field__name) {
+  font-weight: 600;
+  color: #0b2f6d;
+}
+
+:global(.plan-field__control .btn.btn--outline) {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 9px;
+}
+
 /* ---------- Formulario ---------- */
 :global(.register-form) {
   border: none;

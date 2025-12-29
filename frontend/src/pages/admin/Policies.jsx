@@ -2,26 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/api";
 import { fetchQuoteShare } from "@/services/quoteShare";
 import GearIcon from "./GearIcon";
-
-function addMonths(dateStr, months = 0) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr + "T00:00:00");
-  if (Number.isNaN(d)) return "";
-  const day = d.getDate();
-  d.setMonth(d.getMonth() + months);
-  if (d.getDate() < day) d.setDate(0);
-  return d.toISOString().slice(0, 10);
-}
-
-function daysUntil(dateStr) {
-  if (!dateStr) return Infinity;
-  const end = new Date(dateStr + "T00:00:00");
-  const today = new Date();
-  end.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-  const diffMs = end - today;
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-}
+import { addMonths, daysUntil, visibleEndDate, paymentWindow, isPolicyExpiringAfterWindow, nextInstallment } from "./policyHelpers";
 
 function deriveStatus(status, endDate) {
   const d = daysUntil(endDate);
@@ -29,137 +10,6 @@ function deriveStatus(status, endDate) {
   if (d < 0) return "expired";
   if (status === "expired") return "active";
   return status || "active";
-}
-
-function visibleEndDate(row) {
-  return row?.client_end_date || row?.end_date || "";
-}
-
-function anchorDayFromStart(row) {
-  const start = row?.start_date;
-  if (!start) return null;
-  const d = new Date(start + "T00:00:00");
-  if (Number.isNaN(d)) return null;
-  return d.getDate();
-}
-
-function clampDay(year, monthIndex0, day) {
-  const daysInMonth = new Date(year, monthIndex0 + 1, 0).getDate();
-  return Math.max(1, Math.min(day, daysInMonth));
-}
-
-function isoFromYMD(y, m0, d) {
-  const dd = clampDay(y, m0, d);
-  const dt = new Date(y, m0, dd);
-  dt.setHours(0, 0, 0, 0);
-  return dt.toISOString().slice(0, 10);
-}
-
-function nextInstallment(row) {
-  if (!Array.isArray(row?.installments) || row.installments.length === 0) return null;
-
-  const sorted = [...row.installments].sort((a, b) => {
-    const da = new Date((a.due_date_real || a.due_date_display || "9999-12-31") + "T00:00:00");
-    const db = new Date((b.due_date_real || b.due_date_display || "9999-12-31") + "T00:00:00");
-    return da - db;
-  });
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const upcoming = sorted.find((inst) => {
-    const d = new Date((inst.due_date_real || inst.due_date_display || "9999-12-31") + "T00:00:00");
-    d.setHours(0, 0, 0, 0);
-    return d >= today;
-  });
-
-  return upcoming || sorted[0];
-}
-
-/**
- * Reconstruye ventana del mes actual usando:
- * - dueDayDisplay (ej: 7)
- * - paymentWindowDays (ej: 7) => start = 1, end = 7
- */
-function paymentWindowFromSettings(prefWindowDays, dueDayDisplay) {
-  const days = Number(prefWindowDays);
-  const display = Number(dueDayDisplay);
-
-  if (!Number.isFinite(days) || days <= 0 || !Number.isFinite(display) || display <= 0) {
-    return { start: "", end: "" };
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const y = today.getFullYear();
-  const m0 = today.getMonth();
-
-  // Ventana hacia adelante: inicia en el día de vencimiento mostrado y dura N días.
-  const startDay = clampDay(y, m0, display);
-  const endDay = clampDay(y, m0, display + (days - 1));
-
-  return {
-    start: isoFromYMD(y, m0, startDay),
-    end: isoFromYMD(y, m0, endDay),
-  };
-}
-
-/**
- * Payment window:
- * 1) Prioriza installment (source of truth)
- * 2) Timeline explícito (payment_start_date / payment_end_date)
- * 3) Fallback: reconstrucción usando dueDayDisplay + paymentWindowDays (para que sea 1..7)
- * 4) Último fallback: start_date + days (aproximado)
- */
-function paymentWindow(row, prefWindowDays, dueDayDisplay) {
-  const anchorDay = anchorDayFromStart(row);
-  const displayDay = Number(dueDayDisplay);
-  const effectiveDisplay = Number.isFinite(displayDay) && displayDay > 0 ? displayDay : anchorDay;
-
-  // 1) cuota
-  const inst = nextInstallment(row);
-  const instStart = inst?.payment_window_start || "";
-  const instEnd = inst?.payment_window_end || inst?.due_date_display || "";
-  const instRealEnd = inst?.due_date_real || instEnd || "";
-  if (instStart && (instEnd || instRealEnd)) return { start: instStart, end: instEnd, realEnd: instRealEnd };
-
-  // 2) timeline explícito
-  const explicit = {
-    start: row?.payment_start_date || "",
-    end: row?.payment_end_date || "",
-    realEnd: row?.real_end_date || row?.end_date || "",
-  };
-  if (explicit.start && explicit.end) return explicit;
-
-  // 3) settings (clave para 1..7)
-  const fromSettings = paymentWindowFromSettings(prefWindowDays ?? row?.payment_window_days, effectiveDisplay);
-  if (fromSettings.start && fromSettings.end) return fromSettings;
-
-  // 4) aproximado por start_date
-  const days = Number(prefWindowDays ?? row?.payment_window_days);
-  const base = row?.start_date;
-  if (!base || !Number.isFinite(days) || days <= 0) return explicit;
-
-  const baseDate = new Date(`${base}T00:00:00`);
-  if (Number.isNaN(baseDate)) return explicit;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const start = new Date(today);
-  const baseDay = baseDate.getDate();
-  const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  start.setDate(Math.min(baseDay, dim));
-
-  const end = new Date(start);
-  end.setDate(end.getDate() + days - 1);
-
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-    realEnd: end.toISOString().slice(0, 10),
-  };
 }
 
 function inPaymentWindow(row, prefWindowDays, dueDayDisplay) {
@@ -282,8 +132,12 @@ const MONTHS_ES = [
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ];
 const PAGE_SIZE = 10;
+const EXPIRING_PAGE_SIZE = 3;
+const PRICE_UPDATE_PAGE_SIZE = 3;
 const SECTION_MAX_PAGES = 5;
 const SECTION_MAX_ITEMS = SECTION_MAX_PAGES * PAGE_SIZE;
+const EXPIRING_SECTION_MAX_ITEMS = SECTION_MAX_PAGES * EXPIRING_PAGE_SIZE;
+const PRICE_UPDATE_SECTION_MAX_ITEMS = SECTION_MAX_PAGES * PRICE_UPDATE_PAGE_SIZE;
 const ADMIN_FETCH_PAGE_SIZE = 200;
 
 function priceUpdateWindowLabel(row, offsetDays) {
@@ -384,6 +238,7 @@ export default function Policies() {
   const [compact, setCompact] = useState(false);
   const [paymentWindowDays, setPaymentWindowDays] = useState(null);
   const [priceUpdateOffsetDays, setPriceUpdateOffsetDays] = useState(null);
+  const [expiringThresholdDays, setExpiringThresholdDays] = useState(30);
   const [page, setPage] = useState(1);
   const [expiringPage, setExpiringPage] = useState(1);
   const [priceUpdatePage, setPriceUpdatePage] = useState(1);
@@ -413,6 +268,7 @@ export default function Policies() {
   const [inlineSaving, setInlineSaving] = useState(false);
   const [inlineErrors, setInlineErrors] = useState({});
   const [expandedId, setExpandedId] = useState(null);
+  const [expandedSection, setExpandedSection] = useState(null);
   const [inlineDraft, setInlineDraft] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, row: null, loading: false });
   const [restoreConfirm, setRestoreConfirm] = useState({ open: false, row: null, loading: false });
@@ -425,13 +281,24 @@ export default function Policies() {
   // preferencias admin
   const [defaultTerm, setDefaultTerm] = useState(3);
   const [dueDayDisplay, setDueDayDisplay] = useState(null);
+  const managePreviewRow = useMemo(() => {
+    if (!manageModal.row) return null;
+    if (!manageModal.draft) return manageModal.row;
+    return { ...manageModal.row, ...manageModal.draft };
+  }, [manageModal.row, manageModal.draft]);
+  const previewRow = managePreviewRow || manageModal.row;
 
   async function fetchPolicies() {
     setLoading(true);
     setErr("");
     try {
       const all = await fetchAdminPolicies();
-      setRows(all.map((r) => ({ ...r, status: deriveStatus(r.status, visibleEndDate(r)) })));
+      setRows(
+        all.map((r) => {
+          const statusEndDate = r.real_end_date || r.end_date || visibleEndDate(r);
+          return { ...r, status: deriveStatus(r.status, statusEndDate) };
+        })
+      );
     } catch (e) {
       setErr(e?.response?.data?.detail || "No se pudieron cargar pólizas.");
     } finally {
@@ -492,6 +359,8 @@ export default function Policies() {
 
       const displayDay = Number(readMaybe(s, ["payment_due_day_display", "paymentDueDayDisplay"]));
       if (Number.isFinite(displayDay) && displayDay > 0) setDueDayDisplay(displayDay);
+      const expiringThreshold = Number(readMaybe(s, ["expiring_threshold_days", "expiringThresholdDays"]));
+      if (Number.isFinite(expiringThreshold) && expiringThreshold > 0) setExpiringThresholdDays(expiringThreshold);
 
     } catch {
       // defaults silenciosos
@@ -538,59 +407,6 @@ export default function Policies() {
   const activeFiltered = useMemo(() => filtered.filter((r) => r.status !== "inactive"), [filtered]);
   const archivedFiltered = useMemo(() => filtered.filter((r) => r.status === "inactive"), [filtered]);
 
-  const EXPIRING_MAX_DAYS = 30;
-  const expiring = useMemo(() => {
-    const exp = [];
-
-    for (const p of activeFiltered) {
-      const realEndDiff = daysUntil(p.real_end_date || p.end_date);
-      const clientDiff = daysUntil(visibleEndDate(p));
-
-      const { end: payEnd } = paymentWindow(p, paymentWindowDays, dueDayDisplay);
-      const paymentEndDiff = daysUntil(payEnd);
-
-      const policyStarted = !p.start_date || daysUntil(p.start_date) <= 0;
-      const windowEnded = Number.isFinite(paymentEndDiff) && paymentEndDiff < 0;
-
-      let prevWindowEnded = false;
-      if (!windowEnded && Number.isFinite(paymentEndDiff) && paymentEndDiff >= 0 && payEnd) {
-        const prevEnd = addMonths(payEnd, -1);
-        const prevEndDiff = daysUntil(prevEnd);
-        if (policyStarted && Number.isFinite(prevEndDiff) && prevEndDiff < 0) {
-          prevWindowEnded = true;
-        }
-      }
-
-      const windowEndedOrPrevious = windowEnded || prevWindowEnded;
-
-      const nearDueWindow =
-        p.status === "active" &&
-        !p.has_paid_in_window &&
-        policyStarted &&
-        Number.isFinite(paymentEndDiff) &&
-        paymentEndDiff >= 0 &&
-        paymentEndDiff <= EXPIRING_MAX_DAYS &&
-        !windowEnded;
-
-      const unpaidAfterWindow =
-        p.status === "active" &&
-        !p.has_paid_in_window &&
-        windowEndedOrPrevious &&
-        clientDiff < 0 &&
-        realEndDiff >= 0 &&
-        realEndDiff <= EXPIRING_MAX_DAYS;
-
-      if (nearDueWindow || unpaidAfterWindow) {
-        const daysLeft = nearDueWindow ? paymentEndDiff : realEndDiff;
-        const normalizedDays = Number.isFinite(daysLeft) ? Math.max(0, daysLeft) : 0;
-        exp.push({ ...p, __daysLeft: normalizedDays });
-      }
-    }
-
-    exp.sort((a, b) => (a.__daysLeft ?? 9999) - (b.__daysLeft ?? 9999));
-    return exp;
-  }, [activeFiltered, paymentWindowDays, dueDayDisplay]);
-
   const sortedActive = useMemo(() => {
     const list = [...activeFiltered];
     list.sort((a, b) => {
@@ -600,6 +416,37 @@ export default function Policies() {
     });
     return list;
   }, [activeFiltered]);
+
+  const expiring = useMemo(() => {
+    const list = [];
+    for (const policy of activeFiltered) {
+      if (
+        isPolicyExpiringAfterWindow(
+          policy,
+          paymentWindowDays,
+          dueDayDisplay,
+          expiringThresholdDays
+        )
+      ) {
+        const realEndDiff = daysUntil(policy.real_end_date || policy.end_date);
+        list.push({
+          ...policy,
+          __daysLeft: Number.isFinite(realEndDiff) ? Math.max(0, realEndDiff) : 0,
+        });
+      }
+    }
+    list.sort((a, b) => (a.__daysLeft ?? 9999) - (b.__daysLeft ?? 9999));
+    if (process.env.NODE_ENV !== "production") {
+      console.info("Expiring debug", {
+        windowDays: paymentWindowDays,
+        dueDayDisplay,
+        thresholdDays: expiringThresholdDays,
+        matches: list.map((p) => p.number || p.id),
+        candidates: activeFiltered.length,
+      });
+    }
+    return list;
+  }, [activeFiltered, paymentWindowDays, dueDayDisplay, expiringThresholdDays]);
 
   const priceUpdates = useMemo(() => {
     const list = [];
@@ -652,16 +499,16 @@ export default function Policies() {
   const totalPages = Math.max(1, Math.ceil(normalList.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageRows = normalList.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const expiringRawPages = Math.max(1, Math.ceil(expiring.length / PAGE_SIZE));
+  const expiringRawPages = Math.max(1, Math.ceil(expiring.length / EXPIRING_PAGE_SIZE));
   const expiringPageCount = Math.min(SECTION_MAX_PAGES, expiringRawPages);
   const safeExpiringPage = Math.min(expiringPage, expiringPageCount);
-  const expiringPageRows = expiring.slice((safeExpiringPage - 1) * PAGE_SIZE, safeExpiringPage * PAGE_SIZE);
-  const expiringHasOverflow = expiring.length > SECTION_MAX_PAGES * PAGE_SIZE;
-  const priceUpdateRawPages = Math.max(1, Math.ceil(priceUpdates.length / PAGE_SIZE));
+  const expiringPageRows = expiring.slice((safeExpiringPage - 1) * EXPIRING_PAGE_SIZE, safeExpiringPage * EXPIRING_PAGE_SIZE);
+  const expiringHasOverflow = expiring.length > EXPIRING_SECTION_MAX_ITEMS;
+  const priceUpdateRawPages = Math.max(1, Math.ceil(priceUpdates.length / PRICE_UPDATE_PAGE_SIZE));
   const priceUpdatePageCount = Math.min(SECTION_MAX_PAGES, priceUpdateRawPages);
   const safePriceUpdatePage = Math.min(priceUpdatePage, priceUpdatePageCount);
-  const priceUpdatePageRows = priceUpdates.slice((safePriceUpdatePage - 1) * PAGE_SIZE, safePriceUpdatePage * PAGE_SIZE);
-  const priceUpdateHasOverflow = priceUpdates.length > SECTION_MAX_PAGES * PAGE_SIZE;
+  const priceUpdatePageRows = priceUpdates.slice((safePriceUpdatePage - 1) * PRICE_UPDATE_PAGE_SIZE, safePriceUpdatePage * PRICE_UPDATE_PAGE_SIZE);
+  const priceUpdateHasOverflow = priceUpdates.length > PRICE_UPDATE_SECTION_MAX_ITEMS;
 
   useEffect(() => {
     setPage(1);
@@ -677,13 +524,16 @@ export default function Policies() {
 
   // --- CRUD/acciones (mantuve tu lógica original; acá sólo ajusté labels/ventanas) ---
   function openCreate() {
+    const startDate = new Date().toISOString().slice(0, 10);
+    const duration = Number(defaultTerm);
+    const endDate = Number.isFinite(duration) && duration > 0 ? addMonths(startDate, duration) : "";
     setEditing({
       id: null,
       user_id: null,
       product_id: products?.[0]?.id ?? null,
       premium: "",
-      start_date: new Date().toISOString().slice(0, 10),
-      end_date: "",
+      start_date: startDate,
+      end_date: endDate,
       status: "active",
       vehicle: { plate: "", make: "", model: "", version: "", year: "", city: "" },
     });
@@ -725,15 +575,17 @@ export default function Policies() {
     setEditing((prev) => applyAutoEnd(prev, value));
   }
 
-  function openInline(row) {
-    if (expandedId === row.id) {
+  function openInline(row, section = "general") {
+    if (expandedId === row.id && expandedSection === section) {
       setExpandedId(null);
+      setExpandedSection(null);
       setInlineDraft(null);
       setInlineErrors({});
       setInlinePaymentQueued(false);
       return;
     }
     setExpandedId(row.id);
+    setExpandedSection(section);
     setInlineDraft({
       id: row.id,
       user_id: row.user?.id ?? row.user_id ?? null,
@@ -790,6 +642,7 @@ export default function Policies() {
     try {
       await api.patch(`/admin/policies/${inlineDraft.id}`, payload);
       setExpandedId(null);
+      setExpandedSection(null);
       setInlineDraft(null);
       setInlineErrors({});
       if (inlinePaymentQueued) {
@@ -812,6 +665,134 @@ export default function Policies() {
       setInlineSaving(false);
     }
   }
+
+  const renderInlineDetails = (row) => {
+    if (!inlineDraft) return null;
+    return (
+      <div className="compact-details">
+        <div className="detail-row">
+          <div className="detail-label">Usuario</div>
+          <select
+            className={inputClass("detail-input", inlineErrors.user_id)}
+            value={inlineDraft.user_id ?? ""}
+            onChange={(e) => {
+              updateInlineDraft("user_id", e.target.value ? Number(e.target.value) : null);
+              setInlineErrors((er) => {
+                const next = { ...er };
+                delete next.user_id;
+                return next;
+              });
+            }}
+          >
+            <option value="">— Sin usuario —</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.email}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="detail-row">
+          <div className="detail-label">Estado</div>
+          <select className="detail-input" value={inlineDraft.status} onChange={(e) => updateInlineDraft("status", e.target.value)}>
+            <option value="active">Activa</option>
+            <option value="suspended">Suspendida</option>
+            <option value="expired">Vencida</option>
+            <option value="cancelled">Cancelada</option>
+          </select>
+        </div>
+
+        <div className="detail-row">
+          <div className="detail-label">Vigencia</div>
+          <div className="detail-value detail-inline detail-inline--dates">
+            <input
+              className={inputClass("detail-input", inlineErrors.start_date)}
+              type="date"
+              value={inlineDraft.start_date}
+              onChange={(e) => {
+                handleInlineStartChange(e.target.value);
+                setInlineErrors((er) => {
+                  const next = { ...er };
+                  delete next.start_date;
+                  return next;
+                });
+              }}
+            />
+            <input
+              className={inputClass("detail-input", inlineErrors.end_date)}
+              type="date"
+              value={inlineDraft.end_date}
+              onChange={(e) => {
+                updateInlineDraft("end_date", e.target.value);
+                setInlineErrors((er) => {
+                  const next = { ...er };
+                  delete next.end_date;
+                  return next;
+                });
+              }}
+            />
+          </div>
+          {(inlineErrors.start_date || inlineErrors.end_date) && (
+            <small className="field-error">
+              {inlineErrors.start_date || inlineErrors.end_date}
+            </small>
+          )}
+        </div>
+
+        <div className="detail-row">
+          <div className="detail-label">Cuota</div>
+          <input
+            className={inputClass("detail-input", inlineErrors.premium)}
+            value={inlineDraft.premium ?? ""}
+            onChange={(e) => {
+              updateInlineDraft("premium", e.target.value);
+              setInlineErrors((er) => {
+                const next = { ...er };
+                delete next.premium;
+                return next;
+              });
+            }}
+          />
+          {inlineErrors.premium && <small className="field-error">{inlineErrors.premium}</small>}
+          {row?.id && inPaymentWindow(row, paymentWindowDays, dueDayDisplay) && (
+            <div className="mt-8">
+              <button
+                className="btn btn--subtle"
+                onClick={() => setInlinePaymentQueued(true)}
+                disabled={inlinePaymentQueued || inlineSaving}
+              >
+                {inlinePaymentQueued ? "Se registrará al guardar" : "Marcar como pagada"}
+              </button>
+              {inlinePaymentQueued && (
+                <div className="muted small mt-4">
+                  Se registrará el pago al guardar los cambios.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="detail-row">
+          <div className="detail-label">Vehículo</div>
+          <div className="detail-value detail-inline vehicle-grid">
+            <input className="detail-input" placeholder="Patente" value={inlineDraft.vehicle?.plate || ""} onChange={(e) => updateInlineDraft("plate", e.target.value, true)} />
+            <input className="detail-input" placeholder="Marca" value={inlineDraft.vehicle?.make || ""} onChange={(e) => updateInlineDraft("make", e.target.value, true)} />
+            <input className="detail-input" placeholder="Modelo" value={inlineDraft.vehicle?.model || ""} onChange={(e) => updateInlineDraft("model", e.target.value, true)} />
+            <input className="detail-input" placeholder="Versión" value={inlineDraft.vehicle?.version || ""} onChange={(e) => updateInlineDraft("version", e.target.value, true)} />
+            <input className={inputClass("detail-input", inlineErrors.vehicle_year)} placeholder="Año" value={inlineDraft.vehicle?.year || ""} onChange={(e) => updateInlineDraft("year", e.target.value, true)} />
+            <input className="detail-input" placeholder="Ciudad" value={inlineDraft.vehicle?.city || ""} onChange={(e) => updateInlineDraft("city", e.target.value, true)} />
+          </div>
+          {inlineErrors.vehicle_year && <small className="field-error">{inlineErrors.vehicle_year}</small>}
+        </div>
+
+        <div className="compact-actions-inline">
+          <button className="btn btn--danger" onClick={() => askDelete(row)} disabled={inlineSaving}>Eliminar</button>
+          <button className="btn btn--primary" onClick={saveInline} disabled={inlineSaving}>Guardar cambios</button>
+        </div>
+      </div>
+    );
+  };
 
   function parseQuoteLink(raw) {
     const trimmed = String(raw || "").trim();
@@ -918,6 +899,11 @@ export default function Policies() {
     } catch (e2) {
       alert(e2?.response?.data?.detail || "No se pudo guardar la póliza.");
     }
+  }
+
+  function handleEditingSubmit(e) {
+    e.preventDefault();
+    saveEditing();
   }
 
   function openManage(row) {
@@ -1068,6 +1054,7 @@ export default function Policies() {
       await fetchPolicies();
       if (expandedId === deleteConfirm.row.id) {
         setExpandedId(null);
+        setExpandedSection(null);
         setInlineDraft(null);
       }
       setDeleteConfirm({ open: false, row: null, loading: false });
@@ -1123,7 +1110,6 @@ export default function Policies() {
 
       {err && <div className="alert alert--error">{err}</div>}
 
-      {/* Próximo a vencer */}
       {expiring.length > 0 && (
         <div className="card-like card--expiring">
           <div className="admin__head admin__head--tight">
@@ -1146,11 +1132,16 @@ export default function Policies() {
                       </p>
                     </div>
                     <div className="row-actions">
-                      <button className="btn btn--outline btn--icon-only" onClick={() => openManage(r)} aria-label="Gestionar póliza">
-                        <GearIcon />
+                      <button
+                        className="compact-toggle"
+                        onClick={() => openInline(r, "expiring")}
+                        aria-label="Gestionar"
+                      >
+                        {expandedId === r.id && expandedSection === "expiring" ? "–" : "+"}
                       </button>
                     </div>
                   </div>
+                  {expandedSection === "expiring" && expandedId === r.id && inlineDraft && renderInlineDetails(r)}
                 </div>
               ))}
             </div>
@@ -1224,7 +1215,7 @@ export default function Policies() {
           )}
           {expiringHasOverflow && (
             <p className="muted small mt-8">
-              Solo se muestran las primeras {SECTION_MAX_ITEMS} pólizas con ventana próxima al vencimiento.
+              Solo se muestran las primeras {EXPIRING_SECTION_MAX_ITEMS} pólizas con ventana próxima al vencimiento.
             </p>
           )}
         </div>
@@ -1250,11 +1241,16 @@ export default function Policies() {
                       <p className="compact-sub">{r.vehicle?.plate || "—"} · {displayUser(r)} · Desde {r.price_update_from || "—"}</p>
                     </div>
                     <div className="row-actions">
-                      <button className="btn btn--outline btn--icon-only" onClick={() => openManage(r)} aria-label="Gestionar póliza">
-                        <GearIcon />
+                      <button
+                        className="compact-toggle"
+                        onClick={() => openInline(r, "price")}
+                        aria-label="Gestionar"
+                      >
+                        {expandedId === r.id && expandedSection === "price" ? "–" : "+"}
                       </button>
                     </div>
                   </div>
+                  {expandedSection === "price" && expandedId === r.id && inlineDraft && renderInlineDetails(r)}
                 </div>
               ))}
             </div>
@@ -1325,7 +1321,7 @@ export default function Policies() {
           )}
           {priceUpdateHasOverflow && (
             <p className="muted small mt-8">
-              Solo se muestran las primeras {SECTION_MAX_ITEMS} pólizas en ventana de ajuste.
+              Solo se muestran las primeras {PRICE_UPDATE_SECTION_MAX_ITEMS} pólizas en ventana de ajuste.
             </p>
           )}
         </div>
@@ -1383,134 +1379,15 @@ export default function Policies() {
                         {r.start_date || "—"} → {visibleEndDate(r) || "—"} · Cuota ${r.premium ?? "—"}
                       </p>
                     </div>
-                    <button className="compact-toggle" onClick={() => openInline(r)} aria-label="Gestionar">
-                      {expandedId === r.id ? "–" : "+"}
+                    <button
+                      className="compact-toggle"
+                      onClick={() => openInline(r, "general")}
+                      aria-label="Gestionar"
+                    >
+                      {expandedId === r.id && expandedSection === "general" ? "–" : "+"}
                     </button>
                   </div>
-                  {expandedId === r.id && inlineDraft && (
-                    <div className="compact-details">
-                      <div className="detail-row">
-                        <div className="detail-label">Usuario</div>
-                        <select
-                          className={inputClass("detail-input", inlineErrors.user_id)}
-                          value={inlineDraft.user_id ?? ""}
-                          onChange={(e) => {
-                            updateInlineDraft("user_id", e.target.value ? Number(e.target.value) : null);
-                            setInlineErrors((er) => {
-                              const next = { ...er };
-                              delete next.user_id;
-                              return next;
-                            });
-                          }}
-                        >
-                          <option value="">— Sin usuario —</option>
-                          {users.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.email}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="detail-row">
-                        <div className="detail-label">Estado</div>
-                        <select className="detail-input" value={inlineDraft.status} onChange={(e) => updateInlineDraft("status", e.target.value)}>
-                          <option value="active">Activa</option>
-                          <option value="suspended">Suspendida</option>
-                          <option value="expired">Vencida</option>
-                          <option value="cancelled">Cancelada</option>
-                        </select>
-                      </div>
-
-                      <div className="detail-row">
-                        <div className="detail-label">Vigencia</div>
-                        <div className="detail-value detail-inline detail-inline--dates">
-                          <input
-                            className={inputClass("detail-input", inlineErrors.start_date)}
-                            type="date"
-                            value={inlineDraft.start_date}
-                            onChange={(e) => {
-                              handleInlineStartChange(e.target.value);
-                              setInlineErrors((er) => {
-                                const next = { ...er };
-                                delete next.start_date;
-                                return next;
-                              });
-                            }}
-                          />
-                          <input
-                            className={inputClass("detail-input", inlineErrors.end_date)}
-                            type="date"
-                            value={inlineDraft.end_date}
-                            onChange={(e) => {
-                              updateInlineDraft("end_date", e.target.value);
-                              setInlineErrors((er) => {
-                                const next = { ...er };
-                                delete next.end_date;
-                                return next;
-                              });
-                            }}
-                          />
-                        </div>
-                        {(inlineErrors.start_date || inlineErrors.end_date) && (
-                          <small className="field-error">
-                            {inlineErrors.start_date || inlineErrors.end_date}
-                          </small>
-                        )}
-                      </div>
-
-                      <div className="detail-row">
-                        <div className="detail-label">Cuota</div>
-                        <input
-                          className={inputClass("detail-input", inlineErrors.premium)}
-                          value={inlineDraft.premium ?? ""}
-                          onChange={(e) => {
-                            updateInlineDraft("premium", e.target.value);
-                            setInlineErrors((er) => {
-                              const next = { ...er };
-                              delete next.premium;
-                              return next;
-                            });
-                          }}
-                        />
-                        {inlineErrors.premium && <small className="field-error">{inlineErrors.premium}</small>}
-                        {r?.id && inPaymentWindow(r, paymentWindowDays, dueDayDisplay) && (
-                          <div className="mt-8">
-                            <button
-                              className="btn btn--subtle"
-                              onClick={() => setInlinePaymentQueued(true)}
-                              disabled={inlinePaymentQueued || inlineSaving}
-                            >
-                              {inlinePaymentQueued ? "Se registrará al guardar" : "Marcar como pagada"}
-                            </button>
-                            {inlinePaymentQueued && (
-                              <div className="muted small mt-4">
-                                Se registrará el pago al guardar los cambios.
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="detail-row">
-                        <div className="detail-label">Vehículo</div>
-                        <div className="detail-value detail-inline vehicle-grid">
-                          <input className="detail-input" placeholder="Patente" value={inlineDraft.vehicle?.plate || ""} onChange={(e) => updateInlineDraft("plate", e.target.value, true)} />
-                          <input className="detail-input" placeholder="Marca" value={inlineDraft.vehicle?.make || ""} onChange={(e) => updateInlineDraft("make", e.target.value, true)} />
-                          <input className="detail-input" placeholder="Modelo" value={inlineDraft.vehicle?.model || ""} onChange={(e) => updateInlineDraft("model", e.target.value, true)} />
-                          <input className="detail-input" placeholder="Versión" value={inlineDraft.vehicle?.version || ""} onChange={(e) => updateInlineDraft("version", e.target.value, true)} />
-                          <input className={inputClass("detail-input", inlineErrors.vehicle_year)} placeholder="Año" value={inlineDraft.vehicle?.year || ""} onChange={(e) => updateInlineDraft("year", e.target.value, true)} />
-                          <input className="detail-input" placeholder="Ciudad" value={inlineDraft.vehicle?.city || ""} onChange={(e) => updateInlineDraft("city", e.target.value, true)} />
-                        </div>
-                        {inlineErrors.vehicle_year && <small className="field-error">{inlineErrors.vehicle_year}</small>}
-                      </div>
-
-                      <div className="compact-actions-inline">
-                        <button className="btn btn--danger" onClick={() => askDelete(r)} disabled={inlineSaving}>Eliminar</button>
-                        <button className="btn btn--primary" onClick={saveInline} disabled={inlineSaving}>Guardar cambios</button>
-                      </div>
-                    </div>
-                  )}
+                  {expandedSection === "general" && expandedId === r.id && inlineDraft && renderInlineDetails(r)}
                 </div>
               ))
             )}
@@ -1640,14 +1517,14 @@ export default function Policies() {
                 <div className="detail-row">
                   <div className="detail-label">Día de vencimiento real</div>
                   <div className="detail-value muted">
-                    {displayRealDue(manageModal.row)}
+                    {displayRealDue(previewRow)}
                   </div>
                 </div>
 
                 <div className="detail-row">
                   <div className="detail-label">Periodo de pago</div>
                   <div className="detail-value muted">
-                    {paymentWindowLabel(manageModal.row || {}, paymentWindowDays, dueDayDisplay)}
+                    {paymentWindowLabel(previewRow || {}, paymentWindowDays, dueDayDisplay)}
                   </div>
                 </div>
 
@@ -1655,14 +1532,14 @@ export default function Policies() {
                   <div className="detail-label">Estado de pago (ventana)</div>
                   <div className="detail-value">
                     <p className="m-0 muted">
-                      {paymentWindowStatus(manageModal.row, paymentWindowDays, dueDayDisplay, manualPaymentQueued)}
+                      {paymentWindowStatus(previewRow || manageModal.row, paymentWindowDays, dueDayDisplay, manualPaymentQueued)}
                     </p>
                     {!manageModal.row?.has_paid_in_window && (
                       <button
                         className="btn btn--subtle mt-8"
                         onClick={queueManualPayment}
                         disabled={
-                          !inPaymentWindow(manageModal.row, paymentWindowDays, dueDayDisplay) || manualPaying || manualPaymentQueued
+                          !inPaymentWindow(previewRow || manageModal.row, paymentWindowDays, dueDayDisplay) || manualPaying || manualPaymentQueued
                         }
                       >
                         {manualPaymentQueued ? "Se registrará al guardar" : manualPaying ? "Registrando…" : "Registrar pago manual"}
@@ -1689,7 +1566,7 @@ export default function Policies() {
 
                 <div className="detail-row">
                   <div className="detail-label">Periodo de ajuste</div>
-                  <div className="detail-value muted">{priceUpdateWindowLabel(manageModal.row || {}, priceUpdateOffsetDays)}</div>
+                  <div className="detail-value muted">{priceUpdateWindowLabel(previewRow || {}, priceUpdateOffsetDays)}</div>
                 </div>
 
                 <div className="detail-row">
@@ -1870,15 +1747,6 @@ export default function Policies() {
                 </button>
               )}
               <div className="actions actions--row">
-                {manageModal.row?.id && (
-                  <button
-                    className="btn btn--subtle"
-                    onClick={() => registerManualPaymentNow(manageModal.row.id)}
-                    disabled={manualPaying || manageModal.saving}
-                  >
-                    {manualPaying ? "Marcando pago…" : "Marcar como pagada"}
-                  </button>
-                )}
                 <button className="btn btn--primary" onClick={saveManage} disabled={manageModal.saving}>
                   {manageModal.saving ? "Guardando…" : "Guardar"}
                 </button>
@@ -1893,16 +1761,29 @@ export default function Policies() {
       {deleteConfirm.open && deleteConfirm.row && (
         <div className="modal">
           <div className="modal__panel">
-            <h3>Eliminar póliza</h3>
-            <p className="muted">Se archivará la póliza y se desvinculará del usuario.</p>
-            <div className="actions actions--end">
-              <button className="btn btn--subtle" onClick={() => setDeleteConfirm({ open: false, row: null, loading: false })} disabled={deleteConfirm.loading}>
-                Cancelar
+            <header className="modal__header">
+              <h3 className="modal__title">Eliminar póliza</h3>
+              <button
+                className="modal__close"
+                onClick={() => setDeleteConfirm({ open: false, row: null, loading: false })}
+                aria-label="Cerrar"
+              >
+                ×
               </button>
-              <button className="btn btn--danger" onClick={confirmDelete} disabled={deleteConfirm.loading}>
-                {deleteConfirm.loading ? "Eliminando…" : "Eliminar"}
-              </button>
+            </header>
+            <div className="modal__body">
+              <p className="muted">Se archivará la póliza y se desvinculará del usuario.</p>
             </div>
+            <footer className="modal__footer">
+              <div className="actions actions--end">
+                <button className="btn btn--subtle" onClick={() => setDeleteConfirm({ open: false, row: null, loading: false })} disabled={deleteConfirm.loading}>
+                  Cancelar
+                </button>
+                <button className="btn btn--danger" onClick={confirmDelete} disabled={deleteConfirm.loading}>
+                  {deleteConfirm.loading ? "Eliminando…" : "Eliminar"}
+                </button>
+              </div>
+            </footer>
           </div>
           <div className="modal__scrim" onClick={() => setDeleteConfirm({ open: false, row: null, loading: false })} />
         </div>
@@ -1912,16 +1793,29 @@ export default function Policies() {
       {restoreConfirm.open && restoreConfirm.row && (
         <div className="modal">
           <div className="modal__panel">
-            <h3>Restaurar póliza</h3>
-            <p className="muted">La póliza volverá a estar activa.</p>
-            <div className="actions actions--end">
-              <button className="btn btn--subtle" onClick={() => setRestoreConfirm({ open: false, row: null, loading: false })} disabled={restoreConfirm.loading}>
-                Cancelar
+            <header className="modal__header">
+              <h3 className="modal__title">Restaurar póliza</h3>
+              <button
+                className="modal__close"
+                aria-label="Cerrar"
+                onClick={() => setRestoreConfirm({ open: false, row: null, loading: false })}
+              >
+                ×
               </button>
-              <button className="btn btn--primary" onClick={confirmRestore} disabled={restoreConfirm.loading}>
-                {restoreConfirm.loading ? "Restaurando…" : "Restaurar"}
-              </button>
+            </header>
+            <div className="modal__body">
+              <p className="muted">La póliza volverá a estar activa.</p>
             </div>
+            <footer className="modal__footer">
+              <div className="actions actions--end">
+                <button className="btn btn--outline" onClick={() => setRestoreConfirm({ open: false, row: null, loading: false })} disabled={restoreConfirm.loading}>
+                  Cancelar
+                </button>
+                <button className="btn btn--primary" onClick={confirmRestore} disabled={restoreConfirm.loading}>
+                  {restoreConfirm.loading ? "Restaurando…" : "Restaurar"}
+                </button>
+              </div>
+            </footer>
           </div>
           <div className="modal__scrim" onClick={() => setRestoreConfirm({ open: false, row: null, loading: false })} />
         </div>
@@ -1936,7 +1830,7 @@ export default function Policies() {
                 &times;
               </button>
             </div>
-            <div className="detail-list">
+            <form className="detail-list" onSubmit={handleEditingSubmit}>
               <div className="detail-row">
                 <div className="detail-label">Usuario</div>
                 <select
@@ -2063,29 +1957,29 @@ export default function Policies() {
                 </div>
                 {quoteLoadErr && <div className="muted" style={{ color: "var(--danger)" }}>{quoteLoadErr}</div>}
               </div>
-            </div>
-            <div className="actions actions--divider actions--spread">
-              {editing.id ? (
-                <button
-                  className="btn btn--danger"
-                  type="button"
-                  onClick={() => {
-                    askDelete(editing);
-                    closeDrawer();
-                  }}
-                  disabled={false}
-                >
-                  Eliminar
+              <div className="actions actions--divider actions--spread">
+                {editing.id ? (
+                  <button
+                    className="btn btn--danger"
+                    type="button"
+                    onClick={() => {
+                      askDelete(editing);
+                      closeDrawer();
+                    }}
+                    disabled={false}
+                  >
+                    Eliminar
+                  </button>
+                ) : (
+                  <button className="btn btn--outline" type="button" onClick={closeDrawer}>
+                    Cancelar
+                  </button>
+                )}
+                <button className="btn btn--primary" type="submit">
+                  Guardar
                 </button>
-              ) : (
-                <button className="btn btn--outline" type="button" onClick={closeDrawer}>
-                  Cancelar
-                </button>
-              )}
-              <button className="btn btn--primary" type="button" onClick={saveEditing}>
-                Guardar
-              </button>
-            </div>
+              </div>
+            </form>
           </div>
           <div className="drawer__scrim" onClick={closeDrawer} />
         </div>
