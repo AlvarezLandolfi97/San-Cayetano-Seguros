@@ -7,12 +7,18 @@
 - Mercado Pago: `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_REQUIRE_WEBHOOK_SECRET` (true en prod), `MP_NOTIFICATION_URL` opcional
 - Media/CDN: `MEDIA_URL` apuntando a CDN o `https://tu-dominio/media/`; `MEDIA_ROOT` si usás filesystem; `SERVE_MEDIA_FILES=false` en prod (default) o habilitarlo conscientemente
 - CORS/CSRF: `FRONTEND_ORIGINS` separados por coma; en prod no se habilita `CORS_ALLOW_ALL_ORIGINS`
-- Base de datos: no hace falta credenciales, el backend usa SQLite (`backend/db.sqlite3`). Si algún entorno requiere otra base, definí las variables `DB_ENGINE`, `DB_NAME`, etc., pero el flujo local se mantiene 100% con SQLite.
+- Base de datos: en desarrollo podés usar SQLite local (`backend/db.sqlite3`), pero ese archivo no está versionado y se crea automáticamente. En producción es obligatorio configurar `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` y `DB_PORT` (o cualquier otro backend que uses) mediante variables de entorno.
+- Entorno base: copiá `backend/.env.example` hacia `backend/.env` antes de levantar el backend y completá cada valor sensible para el entorno correspondiente.
 - Otros: `API_PAGE_SIZE`, `API_MAX_PAGE_SIZE`, `LOG_LEVEL`
+
+> **Rotación de secretos:** rotar `DJANGO_SECRET_KEY` y cualquier secreto si alguna vez se versionó; genera valores nuevos antes de desplegar o compartir el repositorio y evita reutilizar claves expuestas.
 
 ## Dependencias y tests
 - Instalar todas las dependencias del backend antes de correr pruebas o levantar el servidor: `./venv/bin/pip install -r backend/requirements.txt`. Eso garantiza que `requests`, `google-auth` y otras librerías estén disponibles.
 - Luego podés ejecutar `./venv/bin/python manage.py test accounts` (o la suite completa) sin fallos por dependencias faltantes.
+## Promover administradores seguros
+- Eliminamos la migración `accounts/0003_make_anita_admin.py` que contenía un email hardcodeado; su funcionalidad ahora se reemplaza con un comando explícito.
+- Para promover a un usuario existente ejecutá `python manage.py promote_user_to_admin --email foo@bar.com`. Por default habilita `is_staff` e `is_superuser`, pero podés usar `--no-staff`/`--no-superuser` si necesitás solo uno de los dos flags. El comando es idempotente y arroja `CommandError` si el email no existe.
 
 ## Entornos sin internet / Offline
 - Si no podés bajar paquetes porque no hay acceso a PyPI, mantené `ENABLE_GOOGLE_LOGIN=false` y `VITE_ENABLE_GOOGLE=false`. Así el backend ni el frontend nunca intentan usar `google-auth`.
@@ -122,6 +128,19 @@ Tomá `backend/.env.example` como base y completá las variables obligatorias (v
 - Base de datos: este proyecto usa SQLite (`backend/db.sqlite3`) por defecto. Si realmente necesitás Postgres, agregá `DB_ENGINE`/`DB_NAME`/... y documentalo, pero las pruebas locales sólo usan el archivo.  
 - JWT: `JWT_SIGNING_KEY` (o usa `DJANGO_SECRET_KEY`) para tokens válidos.
 - Seguridad: `SESSION_COOKIE_SECURE=true`, `CSRF_COOKIE_SECURE=true`, `SECURE_SSL_REDIRECT=true`, `SECURE_HSTS_SECONDS` > 0 en prod.
+
+## Frontend endpoint verification
+
+Dentro de `frontend/` existe `scripts/verify-endpoints.js` que compara las rutas consumidas con `frontend_backend_contract.md`. Antes de push, ejecutá:
+
+```
+cd frontend
+npm install
+npm run verify:endpoints
+STRICT=1 npm run verify:endpoints
+```
+
+La variante `STRICT=1` falla si el código usa interpolaciones dinámicas (p. ej. `` `/policies/${id}` ``) sin documentarlas; el modo sin `STRICT` solo advierte. Este paso se usa para que `frontend_backend_contract.md` siga siendo la fuente de verdad.
 
 ## Flujo operativo (cotización manual → póliza → asociación)
 1. El cliente completa un formulario de cotización (información del vehículo + fotos) y lo envía al WhatsApp del negocio; no hay endpoint público automatizado para inspecciones.
