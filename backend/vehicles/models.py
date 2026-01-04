@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models import F
+from django.db.models.functions import Lower
 from accounts.models import User
 
 
@@ -9,7 +11,7 @@ class Vehicle(models.Model):
         ('COM', 'Comercial/Liviano'),
     ]
 
-    license_plate = models.CharField("Patente", max_length=10)
+    license_plate = models.CharField("Patente", max_length=10, db_index=True)
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -27,7 +29,13 @@ class Vehicle(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("owner", "license_plate")
+        constraints = [
+            models.UniqueConstraint(
+                Lower("license_plate"),
+                F("owner"),
+                name="uniq_vehicle_owner_plate_ci",
+            )
+        ]
         ordering = ["license_plate"]
         verbose_name = "Vehículo"
         verbose_name_plural = "Vehículos"

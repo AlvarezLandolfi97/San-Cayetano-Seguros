@@ -1,19 +1,32 @@
 # backend/accounts/views.py
 from rest_framework import viewsets, permissions, decorators, response, status
+from common.authentication import SoftJWTAuthentication
 from .models import User
 from .serializers import UserSerializer
+
+
+@decorators.api_view(["GET"])
+@decorators.authentication_classes([SoftJWTAuthentication])
+@decorators.permission_classes([permissions.AllowAny])
+def deprecated_lookup(request):
+    return response.Response(
+        {"detail": "Endpoint deprecated."},
+        status=status.HTTP_410_GONE,
+    )
+
+
+class IsSelfOrAdmin(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        return bool(user.is_staff or obj.id == user.id)
 
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("-id")
     serializer_class = UserSerializer
     pagination_class = None  # el admin recibe todos los usuarios sin paginación
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if self.action == "list" and self.request.user and self.request.user.is_authenticated:
-            return qs.exclude(id=self.request.user.id)
-        return qs
 
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
@@ -23,13 +36,14 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        - Acciones estándar (list, create, update, delete, retrieve): solo admin.
+        - Acciones estándar (list, create, update, delete): solo admin.
+        - retrieve/partial_update/update: admin o propio usuario.
         - Acción personalizada 'me': usuario autenticado.
         """
         if self.action == "me":
             return [permissions.IsAuthenticated()]
-        if self.action == "lookup":
-            return [permissions.AllowAny()]
+        if self.action in ["retrieve", "partial_update", "update"]:
+            return [IsSelfOrAdmin()]
         return [permissions.IsAdminUser()]
 
     @decorators.action(
@@ -54,25 +68,3 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return response.Response(serializer.data, status=status.HTTP_200_OK)
-
-    @decorators.action(
-        detail=False,
-        methods=["get"],
-        url_path="lookup",
-        permission_classes=[permissions.AllowAny],
-    )
-    def lookup(self, request):
-        """
-        Permite obtener el DNI asociado a un email válido (solo lectura).
-        """
-        email = (request.query_params.get("email") or "").strip()
-        if not email:
-            return response.Response(
-                {"detail": "Email requerido."}, status=status.HTTP_400_BAD_REQUEST
-            )
-        user = User.objects.filter(email__iexact=email).first()
-        if not user:
-            return response.Response(
-                {"detail": "Usuario no encontrado."}, status=status.HTTP_404_NOT_FOUND
-            )
-        return response.Response({"dni": user.dni})

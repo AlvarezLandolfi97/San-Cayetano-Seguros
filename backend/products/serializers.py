@@ -1,6 +1,7 @@
 # backend/products/serializers.py
 from rest_framework import serializers
 from .models import Product
+from .utils import parse_coverages_markdown
 
 # Mapeos de presentación para el Home (tolerante a distintos plan_type)
 PLAN_SUBTITLE = {
@@ -80,21 +81,11 @@ class AdminProductSerializer(ProductSerializer):
         d.setdefault("published_home", getattr(current, "published_home", True))
         d.setdefault("is_active", getattr(current, "is_active", True))
         d.setdefault("bullets", getattr(current, "bullets", []))
+        if d.get("code"):
+            d["code"] = Product.normalize_code(d["code"])
         if not d.get("code"):
-            d["code"] = self._generate_code(d.get("name") or "PLAN")
+            d["code"] = Product.generate_unique_code(d.get("name") or "PLAN")
         return d
-
-    def _generate_code(self, base):
-        slug = "".join(ch for ch in (base or "").upper() if ch.isalnum()) or "PLAN"
-        existing = Product.objects.filter(code__iexact=slug).exists()
-        if existing:
-            suffix = 1
-            new_code = f"{slug}-{suffix}"
-            while Product.objects.filter(code__iexact=new_code).exists():
-                suffix += 1
-                new_code = f"{slug}-{suffix}"
-            return new_code
-        return slug
 
     def create(self, validated_data):
         return super().create(self._apply_defaults(validated_data))
@@ -108,11 +99,12 @@ class HomeProductSerializer(serializers.ModelSerializer):
     subtitle = serializers.CharField(read_only=True, allow_blank=True)
     tag = serializers.SerializerMethodField()
     features = serializers.SerializerMethodField()
+    coverages_lite = serializers.SerializerMethodField()
     code = serializers.CharField(read_only=True)
 
     class Meta:
         model = Product
-        fields = ("id", "code", "name", "subtitle", "tag", "features")
+        fields = ("id", "code", "name", "subtitle", "tag", "features", "coverages_lite")
 
     # ===== Helpers de presentación =====
 
@@ -136,35 +128,16 @@ class HomeProductSerializer(serializers.ModelSerializer):
 
     def get_coverages_lite(self, obj):
         """
-        Devuelve una versión resumida de coberturas:
-        - Usa obj.coverages_lite si existe y no está vacío.
-        - Si no, intenta derivar desde obj.coverages (iterable/relación).
-        - Si no hay nada, lista vacía.
+        Expone siempre una lista limpia de coberturas (hasta 10 entradas).
+        Si el admin provee markdown en `coverages`, lo parseamos.
+        Como fallback usamos `bullets` (mismo shape que `features`).
         """
-        val = getattr(obj, "coverages_lite", None)
-        if val:
-            # admitir tanto list como string multiline
-            if isinstance(val, (list, tuple)):
-                return [str(x).strip() for x in val if str(x).strip()]
-            if isinstance(val, str):
-                return [line.strip("-• ").strip() for line in val.splitlines() if line.strip()]
-            # último recurso: castear
-            try:
-                return [str(x).strip() for x in list(val) if str(x).strip()]
-            except Exception:
-                pass
-
-        cov = getattr(obj, "coverages", None)
-        if cov:
-            # Manejar string de coverages sin dividir en caracteres
-            if isinstance(cov, str):
-                return [line.strip("-• ").strip() for line in cov.splitlines() if line.strip()]
-            try:
-                iterable = list(cov.all()) if hasattr(cov, "all") else list(cov)
-                return [str(c).strip() for c in iterable if str(c).strip()]
-            except Exception:
-                # si es string plano
-                if isinstance(cov, str):
-                    return [line.strip("-• ").strip() for line in cov.splitlines() if line.strip()]
-
+        cov = getattr(obj, "coverages", "")
+        parsed = parse_coverages_markdown(cov)
+        if parsed:
+            return parsed
+        bullets = getattr(obj, "bullets", None)
+        if bullets:
+            cleaned = [str(item).strip() for item in bullets if str(item).strip()]
+            return cleaned[:10]
         return []

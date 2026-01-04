@@ -5,11 +5,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
 from django.shortcuts import redirect
-from common.views import AppSettingsView
-from accounts.auth_views import EmailLoginView, PasswordResetRequestView, PasswordResetConfirmView, RegisterView, LogoutView, GoogleLoginView, ResendOnboardingView
-from accounts.views import UserViewSet
-from rest_framework.routers import DefaultRouter
+from accounts.auth_views import EmailLoginView, PasswordResetRequestView, PasswordResetConfirmView, RegisterView, LogoutView, GoogleLoginView, GoogleLoginStatusView, ResendOnboardingView
+from accounts.views import deprecated_lookup
 from rest_framework_simplejwt.views import TokenRefreshView
+from .legacy_views import legacy_announcements_list, legacy_announcements_detail
 
 
 # === Healthcheck ===
@@ -21,11 +20,8 @@ def healthcheck(request):
     return JsonResponse({"status": "ok"}, status=200)
 
 
-# === URL patterns principales ===
-# Alias directo /api/users/me
-alias_router = DefaultRouter(trailing_slash=False)
-alias_router.register(r"users", UserViewSet, basename="users-alias")
 
+# === URL patterns principales ===
 def _env_bool(val):
     return str(val).strip().lower() in ("1", "true", "t", "yes", "y", "on") if val is not None else False
 
@@ -41,8 +37,7 @@ urlpatterns = [
 
     # API
     path("api/common/", include("common.urls")),
-    # Alias sin prefijo /common/ para compatibilidad con el front
-    path("api/", include("common.urls")),
+    path("api/users/lookup", deprecated_lookup, name="user-lookup-deprecated"),
     path("api/accounts/", include("accounts.urls")),
     # Auth alias compatible con el frontend
     path("api/auth/login", EmailLoginView.as_view(), name="auth-login"),
@@ -50,6 +45,7 @@ urlpatterns = [
     path("api/auth/logout", LogoutView.as_view(), name="auth-logout"),
     path("api/auth/register", RegisterView.as_view(), name="auth-register"),
     path("api/auth/google", GoogleLoginView.as_view(), name="auth-google"),
+    path("api/auth/google/status", GoogleLoginStatusView.as_view(), name="auth-google-status"),
     path("api/auth/password/reset", PasswordResetRequestView.as_view(), name="auth-password-reset"),
     path("api/auth/password/reset/confirm", PasswordResetConfirmView.as_view(), name="auth-password-reset-confirm"),
     path("api/auth/onboarding/resend", ResendOnboardingView.as_view(), name="auth-onboarding-resend"),
@@ -58,13 +54,12 @@ urlpatterns = [
     path("api/payments/", include("payments.urls")),
     path("api/quotes/", include("quotes.urls")),
     path("api/vehicles/", include("vehicles.urls")),
-    # Alias directo para /api/users/… además de /api/accounts/…
-    path("api/", include(alias_router.urls)),
+    path("api/announcements/", legacy_announcements_list, name="legacy-announcements-list"),
+    path("api/announcements/<int:pk>/", legacy_announcements_detail, name="legacy-announcements-detail"),
     # Rutas admin esperadas por el front
     path("api/admin/", include("policies.admin_urls")),
     path("api/admin/", include("accounts.admin_urls")),
     path("api/admin/", include("products.admin_urls")),
-    path("api/admin/settings", AppSettingsView.as_view(), name="admin-settings"),
 ]
 
 

@@ -5,23 +5,31 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 class UserManager(BaseUserManager):
     use_in_migrations = True
 
-    def create_user(self, dni, password=None, **extra_fields):
+    def create_user(self, dni, email, password=None, **extra_fields):
         if not dni:
             raise ValueError("El DNI es obligatorio")
+        if not email:
+            raise ValueError("El email es obligatorio")
         dni = str(dni).strip()
-        user = self.model(dni=dni, **extra_fields)
+        email = self.normalize_email(email or "").lower()
+        user = self.model(dni=dni, email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, dni, password=None, **extra_fields):
+    def create_superuser(self, dni, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("is_active", True)
+
         if extra_fields.get("is_staff") is not True:
             raise ValueError("Superuser debe tener is_staff=True")
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("Superuser debe tener is_superuser=True")
-        return self.create_user(dni, password, **extra_fields)
+        if extra_fields.get("is_active") is not True:
+            raise ValueError("Superuser debe tener is_active=True")
+
+        return self.create_user(dni, email, password, **extra_fields)
 
 
 class User(AbstractUser):
@@ -34,7 +42,7 @@ class User(AbstractUser):
     birth_date = models.DateField(null=True, blank=True)
 
     USERNAME_FIELD = "dni"
-    REQUIRED_FIELDS = []  # no pedimos email en createsuperuser
+    REQUIRED_FIELDS = ["email"]
 
     objects = UserManager()
 

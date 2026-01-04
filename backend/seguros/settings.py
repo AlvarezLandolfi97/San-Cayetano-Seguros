@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -6,8 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 # === BASE DIR ===
 BASE_DIR = Path(__file__).resolve().parent.parent
-# Cargar variables desde backend/.env
-load_dotenv(BASE_DIR / ".env")
+
 
 # === HELPERS ===
 def _bool(value, default=False):
@@ -16,25 +16,81 @@ def _bool(value, default=False):
     return str(value).strip().lower() in ("1", "true", "t", "yes", "y", "on")
 
 
-# === CORE ===
-SECRET_KEY = (
-    os.getenv("DJANGO_SECRET_KEY")
-    or os.getenv("SECRET_KEY")
-    or "dev-secret-key-change-me"
-)
+if not _bool(os.getenv("DJANGO_SKIP_DOTENV")):
+    load_dotenv(BASE_DIR / ".env")
 
-# En producción debe estar en False; por defecto se desactiva salvo que se explicite.
+
+DEFAULT_REDIS_URL = "redis://localhost:6379/1"
+CACHE_KEY_PREFIX = "seguros"
+REDIS_URL = os.getenv("REDIS_URL")
+
+
+def build_cache_settings(redis_url, debug):
+    """
+    Produce the standard CACHES config that prefers redis but falls back to LocMem.
+    """
+    normalized_url = (redis_url or "").strip()
+    if normalized_url:
+        return {
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": normalized_url,
+                "OPTIONS": {
+                    "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                },
+                "KEY_PREFIX": CACHE_KEY_PREFIX,
+            }
+        }
+    if debug:
+        return {
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": f"{CACHE_KEY_PREFIX}-locmem",
+                "TIMEOUT": None,
+            }
+        }
+    raise ImproperlyConfigured(
+        f"REDIS_URL is required when DEBUG=False (e.g. {DEFAULT_REDIS_URL})."
+    )
+
+
+# === CORE ===
+DEPLOYMENT_ENV = (
+    os.getenv("DJANGO_ENV")
+    or os.getenv("ENVIRONMENT")
+    or os.getenv("ENV")
+    or os.getenv("APP_ENV")
+    or "development"
+)
+DEPLOYMENT_ENV = DEPLOYMENT_ENV.strip().lower()
+RUNNING_TESTS = "test" in " ".join(sys.argv)
 DEBUG = _bool(os.getenv("DJANGO_DEBUG") or os.getenv("DEBUG"), False)
 
+if DEBUG and DEPLOYMENT_ENV in ("prod", "production"):
+    raise ImproperlyConfigured(
+        "DEBUG cannot be True when DJANGO_ENV=production."
+    )
+
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY") or os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG or RUNNING_TESTS:
+        SECRET_KEY = "dev-secret-key-change-me"
+    else:
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY is required when DEBUG=False."
+        )
+
 # Hosts permitidos
-_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS") or os.getenv(
-    "ALLOWED_HOSTS", "localhost,127.0.0.1"
-)
-ALLOWED_HOSTS = (
-    ["*"]
-    if "*" in _hosts_env
-    else [h.strip() for h in _hosts_env.split(",") if h.strip()]
-)
+hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS") or os.getenv("ALLOWED_HOSTS")
+if hosts_env:
+    ALLOWED_HOSTS = [h.strip() for h in hosts_env.split(",") if h.strip()]
+else:
+    if DEBUG:
+        ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
+    else:
+        raise ImproperlyConfigured(
+            "DJANGO_ALLOWED_HOSTS is required when DEBUG=False."
+        )
 
 # === INSTALLED APPS ===
 INSTALLED_APPS = [
@@ -49,6 +105,7 @@ INSTALLED_APPS = [
     # Terceros
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
 
     # Apps locales
@@ -76,14 +133,32 @@ MIDDLEWARE = [
 
 
 # === CORS / CSRF ===
-_frontend_env = os.getenv("FRONTEND_ORIGINS") or os.getenv(
-    "FRONTEND_ORIGIN", "http://localhost:5173,http://127.0.0.1:5173"
-)
-CORS_ALLOWED_ORIGINS = [o.strip() for o in _frontend_env.split(",") if o.strip()]
-CORS_ALLOW_CREDENTIALS = _bool(os.getenv("CORS_ALLOW_CREDENTIALS"), False)
+FRONTEND_ORIGINS_ENV = os.getenv("FRONTEND_ORIGINS", "")
+FRONTEND_ORIGIN_ENV = os.getenv("FRONTEND_ORIGIN", "")
+frontend_env = FRONTEND_ORIGINS_ENV or FRONTEND_ORIGIN_ENV
+frontend_origins = [o.strip() for o in frontend_env.split(",") if o.strip()]
+FRONTEND_ORIGINS = frontend_origins
+FRONTEND_ORIGIN = FRONTEND_ORIGIN_ENV or (frontend_origins[0] if frontend_origins else "")
 
-# En dev liberamos CORS; en prod solo orígenes listados
-CORS_ALLOW_ALL_ORIGINS = bool(DEBUG)
+cors_env = os.getenv("CORS_ALLOWED_ORIGINS")
+if cors_env:
+    cors_allowed_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+else:
+    cors_allowed_origins = frontend_origins
+
+CORS_ALLOWED_ORIGINS = cors_allowed_origins
+CORS_ALLOW_CREDENTIALS = _bool(os.getenv("CORS_ALLOW_CREDENTIALS"), False)
+cors_regex_env = os.getenv("CORS_ALLOWED_ORIGIN_REGEXES", "")
+CORS_ALLOWED_ORIGIN_REGEXES = [r.strip() for r in cors_regex_env.split(",") if r.strip()]
+CORS_ALLOW_ALL_ORIGINS = _bool(os.getenv("CORS_ALLOW_ALL_ORIGINS"), False)
+
+if CORS_ALLOW_ALL_ORIGINS and not DEBUG:
+    raise ImproperlyConfigured("CORS_ALLOW_ALL_ORIGINS cannot be True when DEBUG=False.")
+
+if not CORS_ALLOWED_ORIGINS and not CORS_ALLOWED_ORIGIN_REGEXES and not DEBUG:
+    raise ImproperlyConfigured(
+        "CORS_ALLOWED_ORIGINS or CORS_ALLOWED_ORIGIN_REGEXES is required in production."
+    )
 
 CSRF_TRUSTED_ORIGINS = [
     o for o in CORS_ALLOWED_ORIGINS if o.startswith(("http://", "https://"))
@@ -136,6 +211,19 @@ else:
     }
 
 
+# === CACHE ===
+CACHES = build_cache_settings(REDIS_URL, DEBUG)
+
+# === OTP / RATE LIMIT ===
+OTP_PEPPER = os.getenv("OTP_PEPPER")
+OTP_TIMEOUT_SECONDS = int(os.getenv("OTP_TIMEOUT_SECONDS", "600"))
+OTP_VERIFY_MAX_ATTEMPTS = int(os.getenv("OTP_VERIFY_MAX_ATTEMPTS", "5"))
+OTP_RATE_LIMIT_SEND_COUNT = int(os.getenv("OTP_RATE_LIMIT_SEND_COUNT", "5"))
+OTP_RATE_LIMIT_SEND_WINDOW = int(os.getenv("OTP_RATE_LIMIT_SEND_WINDOW", "600"))
+OTP_RATE_LIMIT_VERIFY_COUNT = int(os.getenv("OTP_RATE_LIMIT_VERIFY_COUNT", "10"))
+OTP_RATE_LIMIT_VERIFY_WINDOW = int(os.getenv("OTP_RATE_LIMIT_VERIFY_WINDOW", "600"))
+
+
 # === AUTH ===
 AUTH_USER_MODEL = "accounts.User"
 
@@ -185,6 +273,7 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=int(os.getenv("JWT_ACCESS_HOURS", "8"))),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=int(os.getenv("JWT_REFRESH_DAYS", "7"))),
     "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "ALGORITHM": os.getenv("JWT_ALGORITHM", "HS256"),
     "SIGNING_KEY": os.getenv("JWT_SIGNING_KEY", SECRET_KEY),

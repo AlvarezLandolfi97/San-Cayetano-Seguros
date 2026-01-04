@@ -1,14 +1,19 @@
 import { useState } from "react";
 import { createPreference } from "../../services/payments";
 
-export default function MercadoPagoButton({ policyId, period = "202510", onStarted }) {
+export default function MercadoPagoButton({
+  policyId,
+  installmentId,
+  onStarted,
+}) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
   const pay = async () => {
     setLoading(true); setErr("");
     try {
-      const { initPoint, paymentId } = await createPreference(policyId, period);
+      if (!installmentId) throw new Error("Cuota inválida para pagar.");
+      const { initPoint, paymentId } = await createPreference(policyId, installmentId);
       onStarted?.(paymentId);
       window.location.href = initPoint; // redirección (stub MP)
     } catch (e) {

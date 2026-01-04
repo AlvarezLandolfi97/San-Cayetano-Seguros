@@ -1,12 +1,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import UserViewSet
+from .views import UserViewSet, deprecated_lookup
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 router = DefaultRouter(trailing_slash=False)
 router.register('users', UserViewSet)
 
 urlpatterns = [
+    path("users/lookup", deprecated_lookup, name="user-lookup-deprecated"),
     path('', include(router.urls)),
     path('jwt/create/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('jwt/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

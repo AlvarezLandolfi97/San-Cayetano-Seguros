@@ -13,18 +13,30 @@ import "@/styles/base.css";
 import "@/styles/loader.css";
 import "@/styles/toast.css";
 
+const googleEnabled =
+  import.meta.env.VITE_ENABLE_GOOGLE === "true" &&
+  Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+
+const appTree = (
+  <AuthProvider>
+    <ToastProvider>
+      <BrowserRouter>
+        <ErrorBoundary>
+          <AppRoutes />
+        </ErrorBoundary>
+      </BrowserRouter>
+    </ToastProvider>
+  </AuthProvider>
+);
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || ""}>
-      <AuthProvider>
-        <ToastProvider>
-          <BrowserRouter>
-            <ErrorBoundary>
-              <AppRoutes />
-            </ErrorBoundary>
-          </BrowserRouter>
-        </ToastProvider>
-      </AuthProvider>
-    </GoogleOAuthProvider>
+    {googleEnabled ? (
+      <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
+        {appTree}
+      </GoogleOAuthProvider>
+    ) : (
+      appTree
+    )}
   </React.StrictMode>
 );

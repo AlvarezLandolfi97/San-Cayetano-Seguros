@@ -1,16 +1,18 @@
 # backend/policies/billing.py
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from datetime import date, timedelta
+from django.db import transaction
 from django.utils import timezone
 from decimal import Decimal
 from typing import Iterable, List, Optional, Sequence
 
-from django.db import transaction
-
 from common.models import AppSettings
 from .models import Policy, PolicyInstallment
-from calendar import monthrange
+
+ADMIN_MANAGED_STATUSES = {"cancelled", "suspended", "inactive"}
+AUTO_MANAGED_STATUSES = {"active", "expired"}
 
 
 def _add_months(start: date, months: int) -> date:
@@ -28,6 +30,23 @@ def _add_months(start: date, months: int) -> date:
     last_day = monthrange(year, month)[1]
     return date(year, month, min(start.day, last_day))
 
+
+def ensure_policy_end_date(policy: Policy) -> bool:
+    """
+    Aplica la duración por defecto si la póliza ya tiene una fecha de inicio pero no una de fin.
+    """
+    if not policy.start_date or policy.end_date:
+        return False
+    settings_obj = AppSettings.get_solo()
+    months = getattr(settings_obj, "default_term_months", 0) or 0
+    if months <= 0:
+        return False
+    computed = _add_months(policy.start_date, months)
+    if not computed:
+        return False
+    policy.end_date = computed
+    policy.save(update_fields=["end_date", "updated_at"])
+    return True
 
 def _months_between(start: date, end: date) -> int:
     """
@@ -48,16 +67,16 @@ def compute_installment_status(installment: PolicyInstallment, today: Optional[d
     """
     Stateless status derivation following the requested rules:
     - If already paid, keep PAID.
-    - If today <= payment_window_end (vencimiento adelantado) -> PENDING
-    - If payment_window_end < today <= due_date_real -> NEAR_DUE (aún puede pagar)
+    - If today <= due_date_display (vencimiento visible) -> PENDING
+    - If due_date_display < today <= due_date_real -> NEAR_DUE (aún puede pagar)
     - If today > due_date_real -> EXPIRED
     """
     if installment.status == PolicyInstallment.Status.PAID:
         return installment.status
     today = today or date.today()
-    pw_end = installment.payment_window_end
+    display_due = installment.due_date_display
     real_due = installment.due_date_real
-    if pw_end and today <= pw_end:
+    if display_due and today <= display_due:
         return PolicyInstallment.Status.PENDING
     if real_due and today <= real_due:
         return PolicyInstallment.Status.NEAR_DUE
@@ -66,30 +85,23 @@ def compute_installment_status(installment: PolicyInstallment, today: Optional[d
 
 def _cycle_dates_for_period(period_start: date, *, payment_window_days: int, display_offset_days: int):
     """
-    Calcula las fechas clave de un período mensual tomando como ancla el día
-    de creación de la póliza:
-    - La ventana de pago arranca el mismo día del start_date (clamp al mes).
-    - Vencimiento real: start_day + payment_window_days (incluye el día de inicio).
-    - Vencimiento visible: real - display_offset (no menor al start_day).
+    Deriva las fechas del ciclo de pago basándose en el inicio y la ventana configurada.
     """
-    year = period_start.year
-    month = period_start.month
-    last_day = monthrange(year, month)[1]
+    window_days = max(1, payment_window_days)
+    display_offset = max(0, display_offset_days)
 
-    start_day = min(period_start.day, last_day)
-    payment_start = date(year, month, start_day)
-
-    real_day = min(start_day + payment_window_days, last_day)
-    due_real = date(year, month, real_day)
-
-    display_day = max(start_day, real_day - display_offset_days)
-    payment_end = date(year, month, display_day)
+    payment_window_start = period_start
+    payment_window_end = payment_window_start + timedelta(days=window_days)
+    due_real = payment_window_end
+    due_display = due_real - timedelta(days=display_offset)
+    if due_display < payment_window_start:
+        due_display = payment_window_start
 
     return {
         "period_end": _add_months(period_start, 1) - timedelta(days=1),
-        "payment_window_start": payment_start,
-        "payment_window_end": payment_end,
-        "due_display": payment_end,
+        "payment_window_start": payment_window_start,
+        "payment_window_end": payment_window_end,
+        "due_display": due_display,
         "due_real": due_real,
     }
 
@@ -143,6 +155,164 @@ def months_duration_for_policy(policy: Policy) -> int:
     return getattr(settings_obj, "default_term_months", 3) or 3
 
 
+def _is_installment_paid(installment: PolicyInstallment) -> bool:
+    return bool(
+        installment.paid_at
+        or installment.status == PolicyInstallment.Status.PAID
+    )
+
+
+def sync_installments_preserving_paid(
+    policy: Policy,
+    *,
+    months_duration: Optional[int] = None,
+    monthly_amount: Optional[Decimal] = None,
+) -> Sequence[PolicyInstallment]:
+    """
+    Aligns the policy's installments with the expected plan while keeping any
+    already paid installments untouched, and updating unpaid ones. Paid stray
+    installments are renumbered out of the way before inserts occur to avoid
+    UNIQUE constraint failures.
+    """
+    settings_obj = AppSettings.get_solo()
+    if not policy.start_date:
+        return policy.installments.all()
+
+    months = months_duration if months_duration is not None else months_duration_for_policy(policy)
+    if months <= 0:
+        months = 0
+    amount = monthly_amount if monthly_amount is not None else (policy.premium or Decimal("0"))
+
+    window_days = max(1, getattr(settings_obj, "payment_window_days", 5) or 5)
+    display_offset = max(0, getattr(settings_obj, "client_expiration_offset_days", 0) or 0)
+
+    expected_periods: dict[date, dict] = {}
+    for idx in range(months):
+        period_start = _add_months(policy.start_date, idx)
+        cycle = _cycle_dates_for_period(
+            period_start,
+            payment_window_days=window_days,
+            display_offset_days=display_offset,
+        )
+        expected_periods[period_start] = {
+            "sequence": idx + 1,
+            "period_start": period_start,
+            "cycle": cycle,
+        }
+
+    with transaction.atomic():
+        existing = list(policy.installments.all())
+        desired_sequences = set(range(1, months + 1))
+        sequence_usage: dict[int, int] = {}
+        max_sequence = 0
+        for inst in existing:
+            seq = inst.sequence or 0
+            sequence_usage[seq] = sequence_usage.get(seq, 0) + 1
+            if seq > max_sequence:
+                max_sequence = seq
+
+        next_sequence = max_sequence + 1
+        paid_strays = [
+            inst
+            for inst in existing
+            if _is_installment_paid(inst)
+            and (
+                (inst.period_start_date not in expected_periods)
+                or not inst.period_start_date
+            )
+        ]
+        for inst in paid_strays:
+            seq = inst.sequence or 0
+            duplicate = sequence_usage.get(seq, 0) > 1
+            needs_resequence = seq in desired_sequences or duplicate
+            if needs_resequence:
+                sequence_usage[seq] = max(0, sequence_usage.get(seq, 1) - 1)
+                inst.sequence = next_sequence
+                sequence_usage[next_sequence] = sequence_usage.get(next_sequence, 0) + 1
+                next_sequence += 1
+                inst.save(update_fields=["sequence", "updated_at"])
+
+        period_map = {inst.period_start_date: inst for inst in existing if inst.period_start_date}
+        repurpose_candidates: dict[int, deque[PolicyInstallment]] = defaultdict(deque)
+        for inst in existing:
+            if _is_installment_paid(inst):
+                continue
+            if inst.period_start_date in expected_periods:
+                continue
+            seq_key = inst.sequence or 0
+            repurpose_candidates[seq_key].append(inst)
+
+        update_fields = [
+            "sequence",
+            "period_start_date",
+            "period_end_date",
+            "payment_window_start",
+            "payment_window_end",
+            "due_date_display",
+            "due_date_real",
+            "amount",
+            "status",
+        ]
+
+        for period_start, data in expected_periods.items():
+            sequence = data["sequence"]
+            cycle = data["cycle"]
+            inst = period_map.get(period_start)
+            if inst:
+                if _is_installment_paid(inst):
+                    continue
+                inst.sequence = sequence
+                inst.period_end_date = cycle["period_end"]
+                inst.payment_window_start = cycle["payment_window_start"]
+                inst.payment_window_end = cycle["payment_window_end"]
+                inst.due_date_display = cycle["due_display"]
+                inst.due_date_real = cycle["due_real"]
+                inst.amount = amount
+                inst.status = compute_installment_status(inst)
+                inst.save(update_fields=[*update_fields, "updated_at"])
+            else:
+                candidate_list = repurpose_candidates.get(sequence)
+                if candidate_list:
+                    candidate = candidate_list.popleft()
+                    candidate.sequence = sequence
+                    candidate.period_start_date = period_start
+                    candidate.period_end_date = cycle["period_end"]
+                    candidate.payment_window_start = cycle["payment_window_start"]
+                    candidate.payment_window_end = cycle["payment_window_end"]
+                    candidate.due_date_display = cycle["due_display"]
+                    candidate.due_date_real = cycle["due_real"]
+                    candidate.amount = amount
+                    candidate.status = compute_installment_status(candidate)
+                    candidate.save(update_fields=[*update_fields, "updated_at"])
+                    continue
+                inst = PolicyInstallment(
+                    policy=policy,
+                    sequence=sequence,
+                    period_start_date=period_start,
+                    period_end_date=cycle["period_end"],
+                    payment_window_start=cycle["payment_window_start"],
+                    payment_window_end=cycle["payment_window_end"],
+                    due_date_display=cycle["due_display"],
+                    due_date_real=cycle["due_real"],
+                    amount=amount,
+                    status=PolicyInstallment.Status.PENDING,
+                )
+                inst.status = compute_installment_status(inst)
+                inst.save()
+
+        expected_starts = set(expected_periods.keys())
+        existing_after = list(policy.installments.all())
+        to_remove = [
+            inst.id
+            for inst in existing_after
+            if inst.period_start_date not in expected_starts and not _is_installment_paid(inst)
+        ]
+        if to_remove:
+            PolicyInstallment.objects.filter(id__in=to_remove).delete()
+
+    return policy.installments.all()
+
+
 def regenerate_installments(
     policy: Policy,
     *,
@@ -150,26 +320,16 @@ def regenerate_installments(
     monthly_amount: Optional[Decimal] = None,
 ) -> Sequence[PolicyInstallment]:
     """
-    Idempotently recreates the installments of a policy. Useful when a policy
-    is created or its vigency changes. The operation is wrapped in a
-    transaction to avoid partially duplicated rows.
+    Idempotently recreates the installments of a policy. Uses a syncing helper that
+    preserves paid installments while refreshing the unpaid ones.
     """
-    settings_obj = AppSettings.get_solo()
     months = months_duration if months_duration is not None else months_duration_for_policy(policy)
     amount = monthly_amount if monthly_amount is not None else (policy.premium or Decimal("0"))
-    display_offset = getattr(settings_obj, "client_expiration_offset_days", 0) or 0
-
-    with transaction.atomic():
-        policy.installments.all().delete()
-        installments = _build_installments(
-            policy,
-            months_duration=months,
-            monthly_amount=amount,
-            payment_window_days=getattr(settings_obj, "payment_window_days", 5) or 5,
-            display_offset_days=max(0, display_offset),
-        )
-        PolicyInstallment.objects.bulk_create(installments)
-    return policy.installments.all()
+    return sync_installments_preserving_paid(
+        policy,
+        months_duration=months,
+        monthly_amount=amount,
+    )
 
 
 def current_payment_cycle(
@@ -212,29 +372,20 @@ def next_price_update_window(
     today: Optional[date] = None,
 ) -> tuple[Optional[date], Optional[date]]:
     """
-    Calcula la ventana en la que el admin puede actualizar el precio antes del
-    próximo período (ej: cada 3 meses, los 3 días previos).
+    Devuelve el período de ajuste calculado en base al fin de la póliza y la ventana configurada.
     """
-    today = today or date.today()
-    anchor = policy.start_date or today
-    every_months = max(1, getattr(settings_obj, "price_update_every_months", 0) or 1)
-    offset_days = max(0, getattr(settings_obj, "price_update_offset_days", 0) or 0)
-
-    next_start = None
-    months_step = every_months
-    attempts = 0
-    while attempts < 120:  # hard stop para evitar loops
-        candidate = _add_months(anchor, months_step)
-        if candidate >= today:
-            next_start = candidate
-            break
-        months_step += every_months
-        attempts += 1
-
-    if not next_start:
+    _ = today  # mantenemos la firma compatiblemente aunque no la usamos aquí
+    end_date = getattr(policy, "end_date", None)
+    if not end_date:
         return None, None
 
-    return next_start - timedelta(days=offset_days), next_start - timedelta(days=1)
+    adjustment_days = max(0, getattr(settings_obj, "policy_adjustment_window_days", 0) or 0)
+    if adjustment_days < 0:  # seguridad extra
+        adjustment_days = 0
+
+    adjustment_end = end_date - timedelta(days=1)
+    adjustment_start = adjustment_end - timedelta(days=adjustment_days)
+    return adjustment_start, adjustment_end
 
 
 def mark_cycle_installment_paid(
@@ -261,7 +412,15 @@ def mark_cycle_installment_paid(
         target = qs.filter(status=PolicyInstallment.Status.EXPIRED).order_by("sequence").first()
     if not target:
         return None
+    if payment:
+        if payment.installment_id and payment.installment_id != target.id:
+            raise ValueError("El pago ya está asociado a otra cuota.")
+        if payment.installment_id != target.id:
+            payment.installment = target
+            payment.save(update_fields=["installment"])
     target.mark_paid(payment=payment, when=timezone.now())
+    installments = list(policy.installments.all())
+    update_policy_status_from_installments(policy, installments, persist=True)
     return target
 
 
@@ -311,23 +470,24 @@ def update_policy_status_from_installments(
     persist: bool = False,
 ) -> str:
     """
-    Ajusta el estado general de la póliza según sus cuotas:
-    - Si alguna cuota está vencida (sin pagar) -> policy.status = expired
-    - Si no hay vencidas, permanece en su estado actual (o active si estaba active).
-    Estados finales cancelados/inactivos/suspendidos no se sobreescriben aquí.
+    Auto-manages only the `AUTO_MANAGED_STATUSES` (currently "active" and
+    "expired") based on installment state, while leaving
+    `ADMIN_MANAGED_STATUSES` untouched (these require manual intervention).
+
+    - ADMIN_MANAGED_STATUSES = {"cancelled", "suspended", "inactive"}
+    - AUTO_MANAGED_STATUSES = {"active", "expired"}
+
+    If any installment is expired, the policy moves to "expired".
+    Otherwise it stays or becomes "active". The function is idempotent and
+    never mutates admin-managed statuses.
     """
-    frozen_statuses = {"cancelled", "inactive", "suspended"}
     current = getattr(policy, "status", "active") or "active"
-    if current in frozen_statuses:
+    if current in ADMIN_MANAGED_STATUSES:
+        # Administrative decisions take precedence; do not override them.
         return current
 
     billing_status = derive_policy_billing_status(installments)
-    new_status = current
-    if billing_status == "expired":
-        new_status = "expired"
-    elif current == "expired" and billing_status != "expired":
-        # si se pagó todo, reactivamos a active
-        new_status = "active"
+    new_status = "expired" if billing_status == "expired" else "active"
 
     if persist and new_status != current:
         policy.status = new_status

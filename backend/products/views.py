@@ -1,6 +1,7 @@
 # backend/products/views.py
 from rest_framework import viewsets, permissions, status, response
 from rest_framework.generics import ListAPIView
+from common.authentication import SoftJWTAllowAnyMixin, SoftJWTAuthentication
 from .models import Product
 from .serializers import ProductSerializer, HomeProductSerializer, AdminProductSerializer
 from policies.models import Policy
@@ -15,20 +16,35 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = Product.objects.filter(is_active=True).order_by("id")
     serializer_class = ProductSerializer
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []  # público; ignorar JWT roto
+    PUBLIC_ACTIONS = {"list", "retrieve"}
+
+    def _resolve_action(self):
+        if getattr(self, "action", None):
+            return self.action
+        request = getattr(self, "request", None)
+        if request:
+            return self.action_map.get(request.method.lower())
+        return None
+
+    def get_permissions(self):
+        if self._resolve_action() in self.PUBLIC_ACTIONS:
+            return [permissions.AllowAny()]
+        return [permissions.IsAdminUser()]
+
+    def get_authenticators(self):
+        if self._resolve_action() in self.PUBLIC_ACTIONS:
+            return [SoftJWTAuthentication()]
+        return super().get_authenticators()
 
 
 # 🔹 Vista optimizada para el Home
-class HomeProductsListView(ListAPIView):
+class HomeProductsListView(SoftJWTAllowAnyMixin, ListAPIView):
     """
     GET /api/products/home
     Devuelve una versión liviana para el carrusel del Home.
     Incluye solo: id, name, plan_type, vehicle_type, franchise, coverages_lite.
     """
     serializer_class = HomeProductSerializer
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []  # público; ignorar JWT roto
 
     def get_queryset(self):
         # Solo productos activos y marcados para mostrarse en el Home

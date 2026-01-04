@@ -26,7 +26,7 @@ class ClaimPolicyTests(APITestCase):
             coverages="",
         )
         self.policy = Policy.objects.create(
-            number="POL-CLM-1",
+            number="SC-CLM-1",
             product=self.product,
             premium=10000,
             status="active",
@@ -35,7 +35,7 @@ class ClaimPolicyTests(APITestCase):
 
     def test_claim_policy_assigns_user(self):
         url = reverse("policies-claim")
-        res = self.client.post(url, {"claim_code": "claim-code"}, format="json")
+        res = self.client.post(url, {"number": "SC-CLM-1"}, format="json")
         self.assertEqual(res.status_code, 200)
         self.policy.refresh_from_db()
         self.assertEqual(self.policy.user, self.user)

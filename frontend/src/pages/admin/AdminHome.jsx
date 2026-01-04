@@ -12,18 +12,18 @@ export default function AdminHome() {
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [savingThreshold, setSavingThreshold] = useState(false);
   const [paymentWindow, setPaymentWindow] = useState(5);
-  const [priceUpdateOffset, setPriceUpdateOffset] = useState(2);
   const [defaultTerm, setDefaultTerm] = useState(3);
   const [dueDayDisplay, setDueDayDisplay] = useState(5);
   const [expiringThresholdDays, setExpiringThresholdDays] = useState(30);
   const [expiringCount, setExpiringCount] = useState(0);
-  const [priceUpdateCount, setPriceUpdateCount] = useState(0);
+  const [adjustmentWindowDays, setAdjustmentWindowDays] = useState(7);
+  const [adjustmentCount, setAdjustmentCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [hasPolicies, setHasPolicies] = useState(false);
   const [err, setErr] = useState("");
   const isMounted = useRef(false);
   const showExpiringAlert = expiringCount > 0 && !loading && hasPolicies;
-  const showPriceUpdateAlert = priceUpdateCount > 0 && !loading;
+  const showAdjustmentAlert = adjustmentCount > 0 && !loading;
 
   useEffect(() => {
     if (user) {
@@ -69,12 +69,9 @@ export default function AdminHome() {
     try {
       const { data } = await api.get("/admin/settings");
       const payWindowValue = Number(data?.payment_window_days);
-      const priceOffsetValue = Number(data?.price_update_offset_days);
       const displayValue = Number(data?.payment_due_day_display);
       const thresholdValue = Number(data?.expiring_threshold_days);
-      const termValue = Number(
-        data?.price_update_every_months != null ? data.price_update_every_months : data?.default_term_months
-      );
+      const termValue = Number(data?.default_term_months);
 
       const windowForCounts = Number.isFinite(payWindowValue) && payWindowValue >= 0 ? payWindowValue : DEFAULT_PAYMENT_WINDOW;
       const dueDayForCounts = Number.isFinite(displayValue) && displayValue > 0 ? displayValue : DEFAULT_DUE_DAY;
@@ -82,10 +79,14 @@ export default function AdminHome() {
       if (!isMounted.current) return;
 
       if (Number.isFinite(payWindowValue) && payWindowValue >= 0) setPaymentWindow(payWindowValue);
-      if (Number.isFinite(priceOffsetValue) && priceOffsetValue >= 0) setPriceUpdateOffset(priceOffsetValue);
       if (Number.isFinite(displayValue) && displayValue > 0) setDueDayDisplay(displayValue);
       if (Number.isFinite(thresholdValue) && thresholdValue > 0) setExpiringThresholdDays(thresholdValue);
       if (Number.isFinite(termValue) && termValue > 0) setDefaultTerm(termValue);
+
+      const adjustmentValue = Number(data?.policy_adjustment_window_days);
+      if (Number.isFinite(adjustmentValue) && adjustmentValue >= 0) {
+        setAdjustmentWindowDays(adjustmentValue);
+      }
 
       const list = await fetchAllPolicies();
       if (!isMounted.current) return;
@@ -94,20 +95,22 @@ export default function AdminHome() {
         isPolicyExpiringAfterWindow(p, windowForCounts, dueDayForCounts, thresholdForCounts)
       ).length;
       setExpiringCount(count);
-      const priceToUpdate = list.filter((p) => {
-        const startDiff = daysUntil(p.price_update_from);
-        const endDiff = daysUntil(p.price_update_to);
+      const adjustmentInWindow = list.filter((p) => {
+        const from = p.adjustment_from;
+        const to = p.adjustment_to;
+        const startDiff = daysUntil(from);
+        const endDiff = daysUntil(to);
         const inWindow =
           Number.isFinite(startDiff) && startDiff <= 0 && (!Number.isFinite(endDiff) || endDiff >= 0);
         const stillActive = daysUntil(p.client_end_date || p.end_date) >= 0;
         return p.status === "active" && inWindow && stillActive;
       }).length;
-      setPriceUpdateCount(priceToUpdate);
+      setAdjustmentCount(adjustmentInWindow);
     } catch (e) {
       if (!isMounted.current) return;
       setErr(e?.response?.data?.detail || "No se pudo cargar la información.");
       setExpiringCount(0);
-      setPriceUpdateCount(0);
+      setAdjustmentCount(0);
       setHasPolicies(false);
     } finally {
       if (isMounted.current) setLoading(false);
@@ -145,9 +148,8 @@ export default function AdminHome() {
         payment_window_days: paymentWindow,
         payment_due_day_display: dueDayDisplay,
         expiring_threshold_days: expiringThresholdDays,
-        price_update_offset_days: priceUpdateOffset,
-        price_update_every_months: defaultTerm, // frecuencia de ajuste
-        default_term_months: defaultTerm, // mantenemos sincronizado con la vigencia por defecto
+        default_term_months: defaultTerm,
+        policy_adjustment_window_days: adjustmentWindowDays,
       });
       await loadHomeData();
     } catch (e2) {
@@ -173,9 +175,9 @@ export default function AdminHome() {
           Hay {expiringCount} póliza(s) próximas a vencer.
         </div>
       )}
-      {showPriceUpdateAlert && (
+      {showAdjustmentAlert && (
         <div className="alert-bar alert-bar--warning">
-          Hay {priceUpdateCount} póliza(s) listas para ajustar precio.
+          Hay {adjustmentCount} póliza(s) en periodo de ajuste.
         </div>
       )}
 
@@ -217,71 +219,51 @@ export default function AdminHome() {
       <div className="card-like admin-home__card mb-12">
         <h3 className="heading-tight">Preferencias</h3>
         <div className="admin-home__prefs">
-          <div className="admin-home__prefs-row">
-            <span className="muted">Duración del periodo de pago</span>
-            <select
-              value={paymentWindow}
-              onChange={(e) => setPaymentWindow(Number(e.target.value))}
-              disabled={savingThreshold}
-            >
-              {[0,3,5,7,10,15].map((n) => (
-                <option key={n} value={n}>{n} día{n === 1 ? "" : "s"}</option>
+        {[{
+          label: "Duración de la póliza (en meses)",
+          helper: "Define cuántos meses dura una póliza desde su fecha de inicio.",
+          value: defaultTerm,
+          onChange: (e) => setDefaultTerm(Number(e.target.value)),
+          options: [1, 3, 6, 12].map((n) => ({ value: n, label: `${n} mes${n === 1 ? "" : "es"}` })),
+        }, {
+          label: "Duración del período de pago (en días)",
+          helper: "Cantidad de días disponibles para pagar cada cuota desde el inicio del período mensual.",
+          value: paymentWindow,
+          onChange: (e) => setPaymentWindow(Number(e.target.value)),
+          options: [0, 3, 5, 7, 10, 15].map((n) => ({ value: n, label: `${n} día${n === 1 ? "" : "s"}` })),
+        }, {
+          label: "Día de vencimiento visible para el cliente",
+          helper: "Día del período de pago que se muestra como vencimiento al cliente. No modifica la fecha real de vencimiento.",
+          value: dueDayDisplay,
+          onChange: (e) => setDueDayDisplay(Number(e.target.value)),
+          options: Array.from({ length: 31 }, (_, idx) => idx + 1).map((day) => ({ value: day, label: `${day}` })),
+        }, {
+          label: "Período de ajuste (días antes del fin)",
+          helper: "Define cuántos días antes del fin de la póliza se habilita la ventana de ajuste.",
+          value: adjustmentWindowDays,
+          onChange: (e) => setAdjustmentWindowDays(Number(e.target.value)),
+          options: [0, 3, 5, 7, 10, 14, 21, 30].map((n) => ({ value: n, label: `${n} día${n === 1 ? "" : "s"}` })),
+        }].map(({ label, helper, value, onChange, options }) => (
+          <div
+            key={label}
+            className="admin-home__prefs-row"
+            style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}
+          >
+            <span className="muted" style={{ minWidth: 220 }}>
+              {label}
+            </span>
+            <select value={value} onChange={onChange} disabled={savingThreshold}>
+              {options.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
-            <span className="muted">de ventana para pagar.</span>
+            <span className="muted" style={{ flex: 1 }}>
+              {helper}
+            </span>
           </div>
-          <div className="admin-home__prefs-row">
-            <span className="muted">Avisar para ajustar precio</span>
-            <select
-              value={priceUpdateOffset}
-              onChange={(e) => setPriceUpdateOffset(Number(e.target.value))}
-              disabled={savingThreshold}
-            >
-              {[0,1,2,3,5,7].map((n) => (
-                <option key={n} value={n}>{n} día{n === 1 ? "" : "s"} antes del fin de periodo</option>
-              ))}
-            </select>
-            <span className="muted">para aplicar nuevos montos.</span>
-          </div>
-          <div className="admin-home__prefs-row">
-            <span className="muted">Día visible de vencimiento</span>
-            <select
-              value={dueDayDisplay}
-              onChange={(e) => setDueDayDisplay(Number(e.target.value))}
-              disabled={savingThreshold}
-            >
-              {Array.from({ length: 31 }, (_, idx) => idx + 1).map((day) => (
-                <option key={day} value={day}>{day}</option>
-              ))}
-            </select>
-            <span className="muted">que le mostramos al cliente.</span>
-          </div>
-          <div className="admin-home__prefs-row">
-            <span className="muted">Días para considerar próxima a vencer</span>
-            <select
-              value={expiringThresholdDays}
-              onChange={(e) => setExpiringThresholdDays(Number(e.target.value))}
-              disabled={savingThreshold}
-            >
-              {[3,5,7,10,14,21,30].map((n) => (
-                <option key={n} value={n}>{n} días</option>
-              ))}
-            </select>
-            <span className="muted">desde el vencimiento real.</span>
-          </div>
-          <div className="admin-home__prefs-row">
-            <span className="muted">Duración de cada período</span>
-            <select
-              value={defaultTerm}
-              onChange={(e) => setDefaultTerm(Number(e.target.value))}
-              disabled={savingThreshold}
-            >
-              {[1,3,6,12].map((n) => (
-                <option key={n} value={n}>{n} mes{n === 1 ? "" : "es"}</option>
-              ))}
-            </select>
-            <span className="muted">define la frecuencia de ajuste.</span>
-          </div>
+        ))}
           <div className="actions actions--end admin-home__prefs-actions">
             <button className="btn btn--primary" onClick={savePrefs} disabled={savingThreshold}>Guardar preferencia</button>
           </div>

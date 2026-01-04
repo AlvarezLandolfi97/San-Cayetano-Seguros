@@ -79,7 +79,14 @@ export default function PolicyDetail() {
             <li><b>Vencimiento visible:</b> {detail.client_end_date || detail.end_date || "-"}</li>
             <li><b>Vigencia real:</b> {detail.real_end_date || "-"}</li>
             <li><b>Periodo de pago:</b> {(detail.payment_start_date && detail.payment_end_date) ? `${detail.payment_start_date} → ${detail.payment_end_date}` : detail.payment_start_date || detail.payment_end_date || "-"}</li>
-            <li><b>Ajuste de precio:</b> {detail.price_update_from || detail.price_update_to ? [detail.price_update_from, detail.price_update_to].filter(Boolean).join(" → ") : "-"}</li>
+            <li><b>Período de ajuste:</b>{" "}
+              {(() => {
+                const adjFrom = detail.adjustment_from ?? detail.adjustmentFrom;
+                const adjTo = detail.adjustment_to ?? detail.adjustmentTo;
+                const label = [adjFrom, adjTo].filter(Boolean).join(" → ");
+                return label || "-";
+              })()}
+            </li>
             <li><b>Premio actual:</b> ${Number(detail.current_price || detail.premium || 0).toLocaleString()}</li>
           </ul>
           {detail.warnings?.length ? (

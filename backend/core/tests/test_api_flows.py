@@ -43,7 +43,7 @@ class ApiFlowsTest(APITestCase):
         )
         today = timezone.now().date()
         self.claim_policy = Policy.objects.create(
-            number="POL-CL",
+            number="SC-CL-001",
             product=self.product,
             premium=Decimal("15000"),
             start_date=today,
@@ -52,7 +52,7 @@ class ApiFlowsTest(APITestCase):
             claim_code="SC-CL-001",
         )
         self.pay_policy = Policy.objects.create(
-            number="POL-PAY",
+            number="SC-PAY-001",
             user=self.user,
             product=self.product,
             premium=Decimal("18000"),

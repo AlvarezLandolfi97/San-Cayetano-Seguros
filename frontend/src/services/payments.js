@@ -6,12 +6,10 @@ import { api } from "../api";
  *  - { mp_preference_id, payment_id }  (sin init_point)
  *  - { preference_id, init_point, payment_id }  (ideal)
  * @param {number|string} policyId - id de la póliza
- * @param {string|null} period - AAAAMM (ej: 202503)
- * @param {Array<number>|null} chargeIds - ids de cargos pendientes (opcional, para que el backend use su monto)
+ * @param {number|string} installmentId - id de la cuota que se pagará
  */
-export async function createPreference(policyId, period, chargeIds = []) {
-  const payload = { period };
-  if (Array.isArray(chargeIds) && chargeIds.length > 0) payload.charge_ids = chargeIds;
+export async function createPreference(policyId, installmentId) {
+  const payload = { installment_id: installmentId };
   const { data } = await api.post(`/payments/policies/${policyId}/create_preference`, payload);
 
   // Normalizamos respuesta

@@ -8,7 +8,13 @@ router.register(r"announcements", AnnouncementViewSet, basename="announcements")
 
 urlpatterns = [
     path("contact-info/", ContactInfoView.as_view(), name="contact-info"),
+    path("contact-info", ContactInfoView.as_view(), name="contact-info-no-slash"),  # alias for trailing slash compatibility
     path("admin/settings", AppSettingsView.as_view(), name="app-settings"),
+    path(
+        "admin/settings/",
+        AppSettingsView.as_view(),
+        name="app-settings-trailing-slash",
+    ),  # alias for trailing slash compatibility
 ]
 
 urlpatterns += router.urls

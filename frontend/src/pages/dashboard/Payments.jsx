@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { api } from "@/api";
 import { createPreference } from "@/services/payments";
@@ -8,7 +8,6 @@ import "@/pages/dashboard/dashboard.css";
 export default function Payments() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
-  const [selected, setSelected] = useState(() => new Set());
   const [paying, setPaying] = useState(false);
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -39,11 +38,11 @@ export default function Payments() {
 
         const packs = await Promise.all(
           (policies || []).map(async (p) => {
-            let detail = null;
-            let pending = [];
-            let receipts = [];
-            let pendingError = "";
-            let pendingHint = "";
+          let detail = null;
+          let pending = null;
+          let receipts = [];
+          let pendingError = "";
+          let pendingHint = "";
 
             const [detRes, pendRes, recRes] = await Promise.allSettled([
               api.get(`/policies/${p.id}`),
@@ -53,7 +52,7 @@ export default function Payments() {
 
             if (detRes.status === "fulfilled") detail = detRes.value.data || null;
             if (pendRes.status === "fulfilled") {
-              pending = (pendRes.value.data || []).slice(0, 1);
+              pending = pendRes.value.data?.installment ?? null;
             } else {
               pendingError =
                 pendRes.reason?.response?.data?.detail ||
@@ -70,7 +69,7 @@ export default function Payments() {
             return {
               policy: p,
               detail,
-              pending,
+              pendingInstallment: pending,
               pendingError,
               pendingHint,
               receipts,
@@ -99,77 +98,56 @@ export default function Payments() {
     }
   }, [location.state?.policyId, searchParams, rows]);
 
-  const hasSelection = selected.size > 0;
+  const refreshPendingForPolicy = async (policyId) => {
+    const [pendRes, detailRes, recRes] = await Promise.allSettled([
+      api.get(`/payments/pending`, { params: { policy_id: policyId } }),
+      api.get(`/policies/${policyId}`),
+      api.get(`/policies/${policyId}/receipts`),
+    ]);
+    const pendingInstallment =
+      pendRes.status === "fulfilled" ? pendRes.value.data?.installment || null : null;
+    const detailMsg =
+      pendRes.status === "fulfilled"
+        ? ""
+        : pendRes.reason?.response?.data?.detail || "";
+    const pendingHint = detailMsg.includes("start_date")
+      ? "Falta fecha de inicio. Escribinos para completarla."
+      : detailMsg.includes("premium")
+      ? "Falta cargar el monto mensual. Contactá soporte para actualizarlo."
+      : "";
+    const pendingError =
+      pendRes.status === "fulfilled"
+        ? ""
+        : detailMsg || "No se pudo consultar pagos pendientes para esta póliza.";
+    const detail =
+      detailRes.status === "fulfilled" ? detailRes.value.data || null : null;
+    const receipts = recRes.status === "fulfilled" ? recRes.value.data || [] : [];
 
-  const totalToPay = useMemo(() => {
-    let total = 0;
-    rows.forEach(({ pending }) => {
-      const ch = pending[0];
-      if (ch && selected.has(ch.id)) total += Number(ch.amount || 0);
-    });
-    return total;
-  }, [rows, selected]);
-
-  const toggleCharge = (chargeId) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(chargeId) ? next.delete(chargeId) : next.add(chargeId);
-      return next;
-    });
+    setRows((prev) =>
+      prev.map((row) =>
+        row.policy.id === policyId
+          ? {
+              ...row,
+              pendingInstallment,
+              pendingError,
+              detail,
+              receipts,
+            }
+          : row
+      )
+    );
   };
 
-  const selectAll = () => {
-    const allIds = new Set();
-    rows.forEach(({ pending }) => {
-      if (pending?.[0]) allIds.add(pending[0].id);
-    });
-    setSelected(allIds);
-  };
-
-  const deselectAll = () => setSelected(new Set());
-
-  const periodFromCharge = (ch) => {
-    const raw = ch?.due_date;
-    const d = raw ? new Date(`${raw}T00:00:00`) : new Date();
-    if (Number.isNaN(d.getTime())) return null;
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    return `${y}${m}`;
-  };
-
-  const paySelected = async () => {
-    if (!hasSelection) return;
-    const selections = [];
-    rows.forEach(({ policy, pending }) => {
-      const ch = pending[0];
-      if (ch && selected.has(ch.id)) {
-        selections.push({
-          policyId: policy.id,
-          chargeId: ch.id,
-          period: periodFromCharge(ch),
-        });
-      }
-    });
-    if (!selections.length) return;
+  const payInstallment = async (row) => {
+    if (!row?.pendingInstallment) return;
     try {
       setPaying(true);
-      for (const sel of selections) {
-        const { initPoint } = await createPreference(
-          sel.policyId,
-          sel.period,
-          sel.chargeId ? [sel.chargeId] : []
-        );
-        if (initPoint) window.open(initPoint, "_blank", "noopener,noreferrer");
-      }
-      await Promise.all(
-        rows.map(async (row) => {
-          const pendRes = await api.get(`/payments/pending`, {
-            params: { policy_id: row.policy.id },
-          });
-          return { ...row, pending: (pendRes.data || []).slice(0, 1) };
-        })
-      ).then((refreshed) => setRows(refreshed));
-      setSelected(new Set());
+      const { initPoint } = await createPreference(
+        row.policy.id,
+        row.pendingInstallment.installment_id
+      );
+      if (initPoint) window.open(initPoint, "_blank", "noopener,noreferrer");
+      await refreshPendingForPolicy(row.policy.id);
     } catch (e) {
       alert(e?.response?.data?.detail || e?.message || "No se pudo iniciar el pago.");
     } finally {
@@ -185,42 +163,17 @@ export default function Payments() {
         <h1 className="pay-title user-page__title">Pagos pendientes</h1>
 
         <div className="pay-cta">
-          {/* Botones secundarios */}
-          <div className="btn-group">
-            <button className="btn--secondary" onClick={selectAll}>
-              Seleccionar todo
-            </button>
-            <button className="btn--secondary" onClick={deselectAll}>
-              Deseleccionar todo
-            </button>
-          </div>
-
-          {/* Total y botón principal */}
-          <div className="pay-total">
-            Total:&nbsp;
-            <strong>
-              $
-              {totalToPay.toLocaleString("es-AR", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </strong>
-          </div>
-
-          <button
-            className="btn--primary"
-            onClick={paySelected}
-            disabled={!hasSelection || paying}
-          >
-            {paying ? "Creando pago…" : "Pagar seleccionados"}
-          </button>
+          <p className="muted">
+            Cada póliza muestra su única cuota pendiente; abrimos Mercado Pago sin duplicar pagos y
+            refrescamos el estado al volver.
+          </p>
         </div>
       </header>
 
       <section className="pay-list">
-        {rows.map(({ policy, detail, pending, pendingError, pendingHint, receipts }) => {
-          const ch = pending[0];
-          const selectedThis = ch ? selected.has(ch.id) : false;
+        {rows.map((row) => {
+          const { policy, detail, pendingInstallment, pendingError, pendingHint, receipts } = row;
+          const inst = pendingInstallment;
           const visibleEndDate = policy.client_end_date || policy.end_date;
 
           return (
@@ -258,27 +211,31 @@ export default function Payments() {
               </div>
 
               <div className="pay-charge">
-                {ch ? (
-                  <label className="charge-row">
-                    <input
-                      type="checkbox"
-                      checked={selectedThis}
-                      onChange={() => toggleCharge(ch.id)}
-                    />
+                {inst ? (
+                  <div className="charge-row">
                     <div className="charge-info">
-                      <div className="charge-concept">{ch.concept}</div>
+                      <div className="charge-concept">
+                        Cuota {inst.sequence}
+                      </div>
                       <div className="charge-meta">
-                        <span className="charge-amount">
-                          ${Number(ch.amount).toLocaleString("es-AR")}
-                        </span>
-                        {ch.due_date && (
+                        <strong className="charge-amount">
+                          ${Number(inst.amount).toLocaleString("es-AR")}
+                        </strong>
+                        {inst.due_date_display && (
                           <span className="charge-due">
-                            Vence: {ch.due_date}
+                            Vence: {inst.due_date_display}
                           </span>
                         )}
                       </div>
                     </div>
-                  </label>
+                    <button
+                      className="btn btn--primary"
+                      onClick={() => inst && !paying && payInstallment(row)}
+                      disabled={paying}
+                    >
+                      {paying ? "Abriendo pago…" : "Pagar cuota"}
+                    </button>
+                  </div>
                 ) : (
                   <div className="muted">
                     <p>{pendingError || "No hay pagos pendientes para esta póliza."}</p>

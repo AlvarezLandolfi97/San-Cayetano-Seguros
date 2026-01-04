@@ -12,7 +12,7 @@ import useAuth from "@/hooks/useAuth";
  * - onErrorMessage?: (msg: string) => void
  * - onLoggedIn?: () => void   // opcional, se llama al loguear ok
  */
-export default function GoogleLoginButton({ onErrorMessage, onLoggedIn }) {
+export default function GoogleLoginButton({ onErrorMessage, onLoggedIn, disabled }) {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const enabled = googleClientId && import.meta.env.VITE_ENABLE_GOOGLE === "true";
   if (!enabled) return null;
@@ -28,7 +28,18 @@ export default function GoogleLoginButton({ onErrorMessage, onLoggedIn }) {
       await googleLogin({ id_token: credential }); // <- delega en el hook
       onLoggedIn?.();
     } catch (err) {
-      console.error(err);
+      if (import.meta.env.DEV) {
+        console.error(err);
+      }
+      const status = err?.response?.status;
+      if (status === 404 || status === 403) {
+        onErrorMessage?.("Login con Google no disponible.");
+        return;
+      }
+      if (status === 400) {
+        onErrorMessage?.("No se pudo validar tu cuenta de Google.");
+        return;
+      }
       onErrorMessage?.(
         "No pudimos iniciar sesión con Google. Probá nuevamente."
       );
@@ -41,10 +52,21 @@ export default function GoogleLoginButton({ onErrorMessage, onLoggedIn }) {
     onErrorMessage?.("No pudimos iniciar sesión con Google. Probá nuevamente.");
   };
 
+  const ariaBusy = busy || disabled;
   return (
-    <div className="google-login" aria-busy={busy}>
+    <div
+      className="google-login__button"
+      aria-busy={ariaBusy}
+      aria-disabled={Boolean(disabled)}
+    >
       {/* useOneTap puede reintentar silenciosamente, lo dejamos activo */}
-      <GoogleLogin onSuccess={handleSuccess} onError={handleError} useOneTap />
+      <GoogleLogin
+        onSuccess={handleSuccess}
+        onError={handleError}
+        useOneTap
+        disabled={disabled || busy}
+        text="continue_with"
+      />
     </div>
   );
 }

@@ -13,6 +13,7 @@ class ContactInfo(models.Model):
     )
     schedule = models.CharField("Horario de atención", max_length=120, blank=True, default="Lun a Vie 9:00 a 18:00")
     updated_at = models.DateTimeField(auto_now=True)
+    singleton = models.BooleanField(default=True, editable=False, unique=True)
 
     class Meta:
         verbose_name = "Contacto"
@@ -21,9 +22,13 @@ class ContactInfo(models.Model):
     def __str__(self):
         return "Información de contacto"
 
+    def save(self, *args, **kwargs):
+        self.singleton = True
+        super().save(*args, **kwargs)
+
     @classmethod
     def get_solo(cls):
-        obj, _ = cls.objects.get_or_create(id=1)
+        obj, _ = cls.objects.get_or_create(singleton=True)
         return obj
 
 
@@ -32,11 +37,14 @@ class AppSettings(models.Model):
     client_expiration_offset_days = models.PositiveIntegerField(default=2)
     default_term_months = models.PositiveIntegerField(default=3)
     payment_window_days = models.PositiveIntegerField(default=5)
+    policy_adjustment_window_days = models.PositiveIntegerField(
+        default=7,
+        help_text="Cantidad de días antes del fin de la póliza en los que se considera el periodo de ajuste.",
+    )
     payment_due_day_display = models.PositiveIntegerField(default=5, help_text="Día del mes comunicado al cliente como vencimiento (1-28/31).")
     payment_due_day_real = models.PositiveIntegerField(default=7, help_text="Día del mes como corte real; debe ser >= display.")
-    price_update_offset_days = models.PositiveIntegerField(default=2)
-    price_update_every_months = models.PositiveIntegerField(default=3)
     updated_at = models.DateTimeField(auto_now=True)
+    singleton = models.BooleanField(default=True, editable=False, unique=True)
 
     class Meta:
         verbose_name = "Ajustes de la app"
@@ -45,9 +53,13 @@ class AppSettings(models.Model):
     def __str__(self):
         return "Ajustes de pólizas"
 
+    def save(self, *args, **kwargs):
+        self.singleton = True
+        super().save(*args, **kwargs)
+
     @classmethod
     def get_solo(cls):
-        obj, _ = cls.objects.get_or_create(id=1)
+        obj, _ = cls.objects.get_or_create(singleton=True)
         return obj
 
 

@@ -43,6 +43,7 @@ class QuoteShare(models.Model):
     photo_left = models.ImageField(upload_to=quote_photo_upload_to)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

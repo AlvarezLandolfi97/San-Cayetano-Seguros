@@ -3,7 +3,8 @@ from datetime import date, timedelta
 from django.core.management.base import BaseCommand
 
 from accounts.models import User
-from policies.models import Policy, PolicyInstallment, PolicyVehicle
+from policies.management.commands._vehicle_helpers import ensure_policy_vehicle
+from policies.models import Policy, PolicyInstallment
 from products.models import Product
 
 
@@ -51,7 +52,6 @@ class Command(BaseCommand):
         policy_numbers = [item["number"] for item in seeds]
         if options.get("reset"):
             PolicyInstallment.objects.filter(policy__number__in=policy_numbers).delete()
-            PolicyVehicle.objects.filter(policy__number__in=policy_numbers).delete()
             Policy.objects.filter(number__in=policy_numbers).delete()
 
         for idx, seed in enumerate(seeds):
@@ -68,17 +68,14 @@ class Command(BaseCommand):
                     "end_date": end,
                 },
             )
-            PolicyVehicle.objects.update_or_create(
-                policy=policy,
-                defaults={
+            ensure_policy_vehicle(
+                policy,
+                {
                     "plate": seed["plate"],
                     "make": seed["make"],
                     "model": seed["model"],
-                    "version": "Demo",
                     "year": seed["year"],
                     "city": "CABA",
-                    "has_garage": False,
-                    "usage": "privado",
                 },
             )
             policy.installments.all().delete()

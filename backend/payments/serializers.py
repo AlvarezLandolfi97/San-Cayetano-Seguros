@@ -1,16 +1,10 @@
 from rest_framework import serializers
-from .models import Payment, Charge, Receipt
+from .models import Payment, Receipt
 
 class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
-        fields = '__all__'
-
-
-class ChargeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Charge
-        fields = ["id", "concept", "amount", "due_date", "status"]
+        fields = "__all__"
 
 
 class ReceiptSerializer(serializers.ModelSerializer):

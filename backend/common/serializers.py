@@ -18,8 +18,7 @@ class AppSettingsSerializer(serializers.ModelSerializer):
             "payment_window_days",
             "payment_due_day_display",
             "payment_due_day_real",
-            "price_update_offset_days",
-            "price_update_every_months",
+            "policy_adjustment_window_days",
             "updated_at",
         )
 

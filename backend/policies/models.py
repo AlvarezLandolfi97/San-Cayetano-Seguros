@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from accounts.models import User
 from products.models import Product
@@ -37,6 +38,13 @@ class Policy(models.Model):
     claim_code = models.CharField(max_length=20, null=True, blank=True, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    vehicle = models.ForeignKey(
+        "vehicles.Vehicle",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="policies",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -44,16 +52,24 @@ class Policy(models.Model):
         verbose_name_plural = "Pólizas"
 
     def __str__(self):
-        plate = getattr(getattr(self, "vehicle", None), "plate", "")
-        return f"{self.number} - {plate}".strip(" -")
+        vehicle_plate = getattr(getattr(self, "vehicle", None), "license_plate", "")
+        return f"{self.number} - {vehicle_plate}".strip(" -")
 
     @property
     def is_active(self):
         return self.status == "active"
 
+    def clean(self):
+        super().clean()
+        if self.vehicle_id and self.user_id:
+            if self.vehicle.owner_id != self.user_id:
+                raise ValidationError(
+                    {"vehicle": "El vehículo debe pertenecer al titular de la póliza."}
+                )
+
 
 class PolicyVehicle(models.Model):
-    policy = models.OneToOneField(Policy, on_delete=models.CASCADE, related_name="vehicle")
+    policy = models.OneToOneField(Policy, on_delete=models.CASCADE, related_name="legacy_vehicle")
     plate = models.CharField("Patente", max_length=10, db_index=True)
     make = models.CharField("Marca", max_length=80)
     model = models.CharField("Modelo", max_length=80)
@@ -103,13 +119,6 @@ class PolicyInstallment(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=12, choices=Status.CHOICES, default=Status.PENDING)
     paid_at = models.DateTimeField(null=True, blank=True)
-    payment = models.ForeignKey(
-        "payments.Payment",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="installments",
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -122,6 +131,6 @@ class PolicyInstallment(models.Model):
     def mark_paid(self, payment=None, when=None):
         self.status = self.Status.PAID
         self.paid_at = when or timezone.now()
-        if payment:
-            self.payment = payment
-        self.save(update_fields=["status", "paid_at", "payment", "updated_at"])
+        if payment and payment.installment_id and payment.installment_id != self.id:
+            raise ValueError("Payment.installment_id does not match this installment.")
+        self.save(update_fields=["status", "paid_at", "updated_at"])

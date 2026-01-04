@@ -10,6 +10,19 @@
 - Base de datos: no hace falta credenciales, el backend usa SQLite (`backend/db.sqlite3`). Si algún entorno requiere otra base, definí las variables `DB_ENGINE`, `DB_NAME`, etc., pero el flujo local se mantiene 100% con SQLite.
 - Otros: `API_PAGE_SIZE`, `API_MAX_PAGE_SIZE`, `LOG_LEVEL`
 
+## Dependencias y tests
+- Instalar todas las dependencias del backend antes de correr pruebas o levantar el servidor: `./venv/bin/pip install -r backend/requirements.txt`. Eso garantiza que `requests`, `google-auth` y otras librerías estén disponibles.
+- Luego podés ejecutar `./venv/bin/python manage.py test accounts` (o la suite completa) sin fallos por dependencias faltantes.
+
+## Entornos sin internet / Offline
+- Si no podés bajar paquetes porque no hay acceso a PyPI, mantené `ENABLE_GOOGLE_LOGIN=false` y `VITE_ENABLE_GOOGLE=false`. Así el backend ni el frontend nunca intentan usar `google-auth`.
+- Si activás Google Login sin tener `google-auth`/`requests`, el backend responde `500` con:
+  ```
+  {"detail": "Google login habilitado pero faltan dependencias (google-auth/requests). Instala `pip install -r requirements.txt` para continuar."}
+  ```
+  y el frontend mostrará “Login con Google no disponible.”. Esto evita stacktraces mientras te recuerda instalar los paquetes.
+- Para habilitar el flujo en un entorno cerrado podés mantener un mirror local o wheelhouse y ejecutar `pip install --no-index --find-links=/path/to/wheels -r backend/requirements.txt`. No lo automatizamos aquí para no complicar la infraestructura existente.
+
 ## Webhook de MercadoPago
 - Configurá el webhook de MP con el secreto en `X-Mp-Signature` o `Authorization: Bearer <token>`.
 - En producción se exige `MP_WEBHOOK_SECRET` (o `MP_REQUIRE_WEBHOOK_SECRET=true`); sin secreto se rechaza.
@@ -20,12 +33,69 @@
 - El segundo POST debe incluir `otp`; si es correcto devuelve tokens JWT y datos del usuario.
 - El login público (`/api/auth/login` y `/api/auth/register`) requiere emails únicos; el modelo `User.email` es `unique=True` (ejecutá migración tras desplegar).
 
-### Login con Google (opcional)
-- Si querés habilitarlo hay que activar `ENABLE_GOOGLE_LOGIN=true` en el backend y `VITE_ENABLE_GOOGLE=true` en el frontend.
-- Ambos lados requieren el mismo client ID: `GOOGLE_CLIENT_ID` y `VITE_GOOGLE_CLIENT_ID` deben apuntar al OAuth client creado en Google Cloud. El backend rechazará el login si falta ese valor.
-- El botón de Google en el front solo aparece si `VITE_GOOGLE_CLIENT_ID` está presente; de otro modo queda oculto por defecto.
-- Asegurate de que el token devuelto por Google tenga `aud` igual al client ID, `iss` dentro de `"https://accounts.google.com"` o `"accounts.google.com"` e `email_verified=true`; el backend valida estos campos automáticamente antes de devolver tokens.
+## CORS / Orígenes permitidos
+- Usá `FRONTEND_ORIGINS` (puede ser `http://localhost:5173,http://127.0.0.1:5173` en dev y los dominios oficiales en prod) para que Django exponga los encabezados CORS/CSRF al frontend. El backend también usa esas URLs para construir enlaces de reinicio de contraseña.
+- En desarrollo el sistema permite `CORS_ALLOW_ALL_ORIGINS=true` porque `DEBUG=True`, pero en producción no deberías activar `CORS_ALLOW_ALL_ORIGINS`; dejá solo los dominios listados en `FRONTEND_ORIGINS`.
+- Si no tenés CORS porque el frontend se sirve desde el mismo dominio (por ejemplo detrás de un proxy que hace /api/*), anotá en la configuración del proxy el mapeo a `/api/` y mantené `FRONTEND_ORIGINS` alineado con ese host.
 
+### Login con Google (opcional)
+- Para activar el flujo, poné `ENABLE_GOOGLE_LOGIN=true` en el backend y `VITE_ENABLE_GOOGLE=true` en el frontend. Mientras la flag esté apagada, `/api/auth/google` responde `404` como si el endpoint no existiera.
+- Ambas capas deben usar el mismo OAuth client: `GOOGLE_CLIENT_ID` y `VITE_GOOGLE_CLIENT_ID` apuntan al mismo Client ID creado en Google Cloud; la ausencia de `GOOGLE_CLIENT_ID` hace que el backend devuelva un error 500.
+- El botón de Google en el front solo aparece si `VITE_GOOGLE_CLIENT_ID` está definido; si no, nunca se muestra.
+- El backend usa `google-auth` para verificar el `id_token` (audiencia, issuer y token verificado) antes de devolver los tokens JWT y los datos del usuario.
+- Flujo resumido: el frontend obtiene un `id_token` con Google Identity Services, lo envía a `/api/auth/google`, el backend valida el token, crea/sincroniza al usuario y responde con el par de JWT (`access`/`refresh`) y los datos mínimos del usuario.
+- El backend también revisa que `iss` sea `accounts.google.com` o `https://accounts.google.com`, que el `aud` iguale `GOOGLE_CLIENT_ID` y que `email_verified=true`. Si activás el feature sin `google-auth`/`requests`, el endpoint responde `500` con un mensaje claro. Si la flag está apagada responde `404` y el frontend muestra “Login con Google no disponible.”
+
+## Google Cloud OAuth Setup
+- En la consola de Google Cloud creá un OAuth Client ID tipo “Web application”.
+- En la sección “Authorized JavaScript origins” agregá:
+  - `http://localhost:5173` (o el host/puerto de tu dev server)
+  - `https://TU_DOMINIO` (el dominio público donde corre el frontend en prod)
+- Para GIS no necesitas “Authorized redirect URIs” porque el flujo usa el método `GoogleLogin` de Identity Services. Sólo los dejamos si tu frontend hace redirect manual.
+- Copiá el Client ID recién creado en:
+  - `backend/.env` como `GOOGLE_CLIENT_ID`
+  - `frontend/.env` como `VITE_GOOGLE_CLIENT_ID`
+- Activá las flags: `ENABLE_GOOGLE_LOGIN=true` y `VITE_ENABLE_GOOGLE=true` (mantenerlas en `false` para entornos offline).
+- Reinicia backend y frontend si cambiaste estos valores para que tomen las nuevas variables.
+ - Verificá el estado con `GET /api/auth/google/status`; devuelve `google_login_enabled`, `google_client_id_configured` y `google_auth_available` (booleans) para confirmar que el backend ve la configuración correcta sin exponer el client ID.
+
+## Troubleshooting Google Login
+Sintoma | Causa probable | Cómo resolver
+--- | --- | ---
+El botón “Continuar con Google” no aparece | `VITE_ENABLE_GOOGLE` no está en `"true"` o `VITE_GOOGLE_CLIENT_ID` vacío | Definí ambos valores en `frontend/.env` (ej. `VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com`) y reiniciá `npm run dev`.
+Backend responde `404` | `ENABLE_GOOGLE_LOGIN` está apagado o no es `"true"` | Confirmá `backend/.env`, usá `ENABLE_GOOGLE_LOGIN=true`, reiniciá Django; también podés consultar `/api/auth/google/status` para ver que `google_login_enabled=false`.
+Backend responde `500` (“faltan dependencias”) | `google-auth` o `requests` no están instalados | Ejecutá `./venv/bin/python -m pip install -r backend/requirements.txt` o usa un wheelhouse local (`pip install --no-index --find-links=/path/to/wheels -r backend/requirements.txt`).
+Respuesta `401/400 invalid token / aud mismatch` | `GOOGLE_CLIENT_ID` no coincide con el Client ID real o el token no es un ID token de Google | Asegurate que `GOOGLE_CLIENT_ID` y `VITE_GOOGLE_CLIENT_ID` sean idénticos al ID de Google Cloud; revisá también que el token provenga de GIS (no uses un JWT arbitrario).
+Respuesta con issuer inválido | Token no emitido por `accounts.google.com` / `https://accounts.google.com` | Usá Google Identity Services oficial; no aceptamos otros proveedores.
+CORS error en el navegador | El origen del frontend no está listado en `FRONTEND_ORIGINS` | Agregá `http://localhost:5173` (dev) y `https://TU_DOMINIO` (prod) a `FRONTEND_ORIGINS`.
+Clock skew / Token expirado | Reloj del servidor desincronizado (especialmente en VPC/VM) | Sincronizá con NTP (`ntpdate`, `chronyd`, etc.) para ancho <5s.
+`email_verified=false` en la respuesta | La cuenta de Google no tiene email verificado | Usá otra cuenta, verificá el email en Google o vinculá con una cuenta existente ya verificada.
+El botón aparece pero no funciona y el backend responde 403 | No se puede leer `GOOGLE_CLIENT_ID` en el backend o hay mismatch | Confirmá el valor en `backend/.env` y reiniciá el servicio; el health `/api/auth/google/status` debe mostrar `google_client_id_configured=true`.
+El botón aparece, el backend responde OK pero el usuario no ve cambios | El `first_name`/`last_name` no cambian porque las columnas vienen vacías | `GOOGLE_LOGIN` solo sincroniza si el valor nuevo difiere de lo actual; podés forzar el cambio editando el usuario en Django Admin.
+
+## Deploy checklist (Google login)
+1. Configurá los “Authorized JavaScript origins” en Google Cloud (por ejemplo `http://localhost:5173` para dev y `https://app.tu-dominio.com` en prod).
+2. Creá el OAuth client tipo Web Application y copialo en `GOOGLE_CLIENT_ID` y `VITE_GOOGLE_CLIENT_ID`.
+3. Poné `ENABLE_GOOGLE_LOGIN=true` en `backend/.env` y `VITE_ENABLE_GOOGLE=true` en `frontend/.env` (mantener `false` offline).
+4. Asegurate de que `FRONTEND_ORIGINS` incluye tanto los dominios de dev (`http://localhost:5173`) como de prod (`https://app.tu-dominio.com`).
+5. Instalá las dependencias del backend (`pip install -r backend/requirements.txt`) para que `google-auth` esté disponible.
+6. Reiniciá Django/Daphne (o el WSGI) y el dev server/build del frontend para recargar envs.
+7. Ejecutá el smoke test descrito arriba y confirmá que `/api/auth/google/status` devuelve `true` en `google_login_enabled` y `google_client_id_configured`.
+8. Verificá que el login clásico (`/api/auth/login`) sigue funcionando (mismo flujo sin tocar).
+9. Recorre la sección de Troubleshooting si aparece algún `invalid token`, `aud mismatch`, issuer reject o CORS repeat.
+10. Documentá en el release (o en el deploy ticket) los valores reales usados y los pasos seguidos.
+
+## Smoke test manual
+1. Asegurate de tener `google-auth` instalado (`./venv/bin/python -m pip install -r backend/requirements.txt`) para que `GOOGLE_AUTH_AVAILABLE` sea `True`.
+2. Arrancá el backend y el dev server (`npm run dev` o equivalente) con `ENABLE_GOOGLE_LOGIN=true` y `VITE_ENABLE_GOOGLE=true`.
+3. Abrí `/login` y confirmá que el botón dice “Continuar con Google”.
+4. Hacé click y completá el flujo con una cuenta de Google válida.
+5. En la respuesta del backend `/api/auth/google` deberías ver `{"access": "...", "refresh": "...", "user": {...}}`. Verificá en los logs (o agregá temporalmente un `logger.info("google login", extra={"email": email})`) que el email recibido es el esperado, sin loguear tokens.
+6. En el frontend confirmá que el usuario queda autenticado (por ejemplo, se redirige al dashboard y el header muestra su nombre).
+7. Si el usuario ya existía, revisá que `first_name`/`last_name` se actualicen si cambiaron en Google; si no existía, confirmá que se creó.
+
+## Tests con dependencias instaladas
+- Cuando tengás acceso a PyPI, ejecutá `./venv/bin/python -m pip install -r backend/requirements.txt` y luego `./venv/bin/python manage.py test accounts`. Eso hace que `GOOGLE_AUTH_AVAILABLE` sea `True` y los tests que dependen de Google se ejecuten.
 ## Media/archivos
 - Producción: serví media desde CDN/bucket o Nginx (location `/media/` apuntando a `MEDIA_ROOT`). Dejá `SERVE_MEDIA_FILES=false` (default) y poné `MEDIA_URL` al endpoint público del CDN.
 - Solo si querés que Django sirva media en prod (no recomendado), definí `SERVE_MEDIA_FILES=true` **y** `ALLOW_SERVE_MEDIA_IN_PROD=true`.

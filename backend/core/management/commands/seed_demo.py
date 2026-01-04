@@ -2,8 +2,9 @@ import datetime
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from products.models import Product
-from policies.models import Policy, PolicyVehicle
-from payments.models import Charge, Receipt
+from policies.management.commands._vehicle_helpers import ensure_policy_vehicle
+from policies.models import Policy
+from payments.models import Receipt
 from common.models import AppSettings
 
 
@@ -41,8 +42,7 @@ class Command(BaseCommand):
         settings_obj.client_expiration_offset_days = 2
         settings_obj.default_term_months = 3
         settings_obj.payment_window_days = 5
-        settings_obj.price_update_offset_days = 2
-        settings_obj.price_update_every_months = 3
+        settings_obj.policy_adjustment_window_days = 7
         settings_obj.save()
 
         # Productos
@@ -197,26 +197,7 @@ class Command(BaseCommand):
                     "claim_code": pdata["claim_code"],
                 },
             )
-            PolicyVehicle.objects.update_or_create(policy=policy, defaults=pdata["vehicle"])
-
-        # Cargos pendientes
-        charges = [
-            (101, {"concept": "Cuota mes en curso", "amount": 24500, "due_date": rel(5), "status": "pending"}),
-            (102, {"concept": "Cuota mes en curso", "amount": 19800, "due_date": rel(-1), "status": "pending"}),
-            (103, {"concept": "Cuota vencida", "amount": 12000, "due_date": rel(-10), "status": "pending"}),
-            (104, {"concept": "Cuota futura", "amount": 41000, "due_date": rel(15), "status": "pending"}),
-            (108, {"concept": "Cuota próxima", "amount": 17500, "due_date": rel(7), "status": "pending"}),
-        ]
-        for policy_number, data in charges:
-            try:
-                policy = Policy.objects.get(number=f"POL-{policy_number:06d}" if isinstance(policy_number, int) else policy_number)
-            except Policy.DoesNotExist:
-                continue
-            Charge.objects.update_or_create(
-                policy=policy,
-                concept=data["concept"],
-                defaults=data,
-            )
+            ensure_policy_vehicle(policy, pdata["vehicle"])
 
         # Recibos demo
         receipts = [

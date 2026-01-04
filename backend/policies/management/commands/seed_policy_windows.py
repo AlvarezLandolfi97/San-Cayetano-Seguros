@@ -6,7 +6,8 @@ from django.core.management.base import BaseCommand
 
 from accounts.models import User
 from common.models import AppSettings
-from policies.models import Policy, PolicyVehicle, PolicyInstallment
+from policies.management.commands._vehicle_helpers import cleanup_owner_vehicles, ensure_policy_vehicle
+from policies.models import Policy, PolicyInstallment
 from products.models import Product
 
 
@@ -31,18 +32,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         today = date.today()
         settings_obj = AppSettings.get_solo()
-        settings_obj.price_update_every_months = 3
-        settings_obj.price_update_offset_days = 3
         settings_obj.payment_window_days = 5
         settings_obj.client_expiration_offset_days = 1
         settings_obj.default_term_months = 3
+        settings_obj.policy_adjustment_window_days = 7
         settings_obj.expiring_threshold_days = 7
         settings_obj.save()
 
         users = self._seed_users()
         products = self._seed_products()
 
-        price_every = settings_obj.price_update_every_months or 3
+        price_every = max(1, getattr(settings_obj, "default_term_months", 3) or 3)
         price_candidates = [today + timedelta(days=1), today + timedelta(days=2), today + timedelta(days=3)]
 
         policy_specs = []
@@ -142,8 +142,9 @@ class Command(BaseCommand):
         policy_numbers = [spec["number"] for spec in policy_specs]
         if options.get("reset"):
             PolicyInstallment.objects.filter(policy__number__in=policy_numbers).delete()
-            PolicyVehicle.objects.filter(policy__number__in=policy_numbers).delete()
             Policy.objects.filter(number__in=policy_numbers).delete()
+            owner_ids = list(User.objects.filter(dni__in=["11000001", "11000002", "11000003"]).values_list("id", flat=True))
+            cleanup_owner_vehicles(owner_ids)
 
         policies = {}
         for spec in policy_specs:
@@ -158,7 +159,7 @@ class Command(BaseCommand):
                     "end_date": spec["end_date"],
                 },
             )
-            PolicyVehicle.objects.update_or_create(policy=policy, defaults=spec["vehicle"])
+            ensure_policy_vehicle(policy, spec["vehicle"])
             policies[spec["number"]] = policy
 
         installment_plan = self._build_installments_for(policies, today)

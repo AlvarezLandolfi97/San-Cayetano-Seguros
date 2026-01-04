@@ -6,6 +6,7 @@ from datetime import datetime
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.utils import timezone
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
@@ -22,6 +23,7 @@ TEMPLATE_PDF_REL = os.getenv("RECEIPT_TEMPLATE_PDF", "static/receipts/COMPROBANT
 def _y_from_top(height, top_mm: float) -> float:
     """Convierte milímetros desde el borde superior a coordenada Y (origen abajo-izq)."""
     return height - (top_mm * mm)
+
 
 def _draw_grid(c, width, height, step_mm=10):
     """Grilla de calibración cada N mm (activar con RECEIPT_DEBUG_GRID=true)."""
@@ -41,6 +43,7 @@ def _draw_grid(c, width, height, step_mm=10):
         c.drawString(1, y + 1, f"{int(y/mm)}")
         y += step_mm * mm
     c.restoreState()
+
 
 # Posiciones iniciales (mm desde izquierda, mm desde arriba)
 # Ajustalas si querés que caiga 1:1; con la grilla es muy rápido calibrar.
@@ -64,6 +67,7 @@ POS = {
     # Forma de pago (alineado a derecha, un poco más a la izquierda para evitar corte)
     "metodo_right": (168, 70),
 }
+
 
 def _draw_text(c, width, height, key, text, *, right=False, font="Helvetica", size=10):
     x_mm, top_mm = POS[key]
@@ -227,3 +231,49 @@ def generate_receipt_pdf(payment, template_pdf_rel: str = TEMPLATE_PDF_REL) -> s
 
     rel_path = f"receipts/{datetime.now():%Y/%m}/receipt_{getattr(payment, 'id', 'tmp')}.pdf"
     return default_storage.save(rel_path, ContentFile(out_buf.getvalue()))
+
+
+STATE_PRIORITY = {"APR": 3, "PEN": 2, "REJ": 1}
+
+
+def _score_payment_for_installment(payment):
+    state_score = STATE_PRIORITY.get(getattr(payment, "state", "") or "", 0)
+    has_mp_preference = bool((getattr(payment, "mp_preference_id", "") or "").strip())
+    created_at = getattr(payment, "created_at")
+    if created_at is None:
+        created_at = timezone.now()
+    return (state_score, has_mp_preference, created_at)
+
+
+def choose_canonical_payment_for_installment(payments):
+    """
+    Determina qué Pago debe ser el único asociado a una cuota cuando hay duplicados.
+    """
+    if not payments:
+        return None
+    return max(payments, key=_score_payment_for_installment)
+
+
+def normalize_duplicate_installment_payments(payments):
+    """
+    Marca como rechazados y deja sin cuota a los pagos extra, conservando solo el canónico.
+    """
+    if not payments:
+        return
+    canonical = choose_canonical_payment_for_installment(payments)
+    for payment in payments:
+        if canonical and payment.pk == canonical.pk:
+            continue
+        payment.installment = None
+        payment.state = "REJ"
+        payment.save(update_fields=["installment", "state"])
+
+
+def period_from_installment(installment):
+    """
+    Derive the YYYYMM period that should match the installment's period_start_date.
+    """
+    start_date = getattr(installment, "period_start_date", None)
+    if not start_date:
+        return None
+    return f"{start_date.year}{str(start_date.month).zfill(2)}"

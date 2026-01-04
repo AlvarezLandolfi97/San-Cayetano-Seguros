@@ -39,7 +39,7 @@ export default function PolicyOverview() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(null);
 
-  const [pending, setPending] = useState([]);
+  const [pendingInstallment, setPendingInstallment] = useState(null);
   const [receipts, setReceipts] = useState([]);
   const [paying, setPaying] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -71,11 +71,11 @@ export default function PolicyOverview() {
           api.get(`/policies/${selected.id}/receipts`),
         ]);
         setDetail(det || null);
-        setPending((pend.data || []).slice(0, 1));
+        setPendingInstallment(pend.data?.installment ?? null);
         setReceipts(recs.data || []);
       } catch {
         setDetail(null);
-        setPending([]);
+        setPendingInstallment(null);
         setReceipts([]);
       }
     })();
@@ -118,25 +118,15 @@ export default function PolicyOverview() {
     return "is-inactive";
   };
 
-  const periodFromCharge = (ch) => {
-    const raw = ch?.due_date;
-    const d = raw ? new Date(`${raw}T00:00:00`) : new Date();
-    if (Number.isNaN(d.getTime())) return null;
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    return `${y}${m}`;
-  };
-
   async function payCurrentCharge() {
     if (!current) return;
-    const ch = pending[0];
-    if (!ch) return;
+    const inst = pendingInstallment;
+    if (!inst) return;
     try {
       setPaying(true);
       const { initPoint } = await createPreference(
         current.id,
-        periodFromCharge(ch),
-        ch?.id ? [ch.id] : []
+        inst.installment_id
       );
       if (initPoint) window.open(initPoint, "_blank", "noopener,noreferrer");
 
@@ -144,7 +134,7 @@ export default function PolicyOverview() {
         api.get(`/payments/pending`, { params: { policy_id: current.id } }),
         api.get(`/policies/${current.id}/receipts`),
       ]);
-      setPending((pend.data || []).slice(0, 1));
+      setPendingInstallment(pend.data?.installment ?? null);
       setReceipts(recs.data || []);
     } catch (e) {
       alert(e?.response?.data?.detail || e?.message || "No se pudo iniciar el pago.");
@@ -261,11 +251,15 @@ export default function PolicyOverview() {
                 <strong>{paymentWindowLabel(detail || current)}</strong>
               </div>
               <div className="po-summaryItem">
-                <span className="muted">Ajuste de precio</span>
+                <span className="muted">Período de ajuste</span>
                 <strong>
-                  {(detail || current)?.price_update_from || (detail || current)?.price_update_to
-                    ? [(detail || current)?.price_update_from, (detail || current)?.price_update_to].filter(Boolean).join(" → ")
-                    : "—"}
+                  {(() => {
+                    const source = detail || current || {};
+                    const adjFrom = source.adjustment_from ?? source.adjustmentFrom;
+                    const adjTo = source.adjustment_to ?? source.adjustmentTo;
+                    const label = [adjFrom, adjTo].filter(Boolean).join(" → ");
+                    return label || "—";
+                  })()}
                 </strong>
               </div>
             </div>
@@ -335,19 +329,19 @@ export default function PolicyOverview() {
               <span className="po-pill">Coberturas y recibos</span>
             </div>
             <div className="po-inlineContent">
-              {pending.length ? (
+              {pendingInstallment ? (
                 <div className="po-inlineRow">
                   <div className="po-inlineInfo">
                     <div className="po-charge__concept">
-                      {pending[0].concept}
+                      Cuota {pendingInstallment.sequence}
                     </div>
                     <div className="po-charge__meta">
                       <span className="po-charge__amount">
-                        ${Number(pending[0].amount).toLocaleString()}
+                        ${Number(pendingInstallment.amount).toLocaleString()}
                       </span>
-                      {pending[0].due_date && (
+                      {pendingInstallment.due_date_display && (
                         <span className="po-charge__due">
-                          Vence: {pending[0].due_date}
+                          Vence: {pendingInstallment.due_date_display}
                         </span>
                       )}
                     </div>

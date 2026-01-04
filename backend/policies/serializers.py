@@ -1,12 +1,22 @@
 # backend/policies/serializers.py
 import secrets
 from datetime import date
+from django.utils import timezone
+
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
-from .models import Policy, PolicyVehicle, PolicyInstallment
+
 from accounts.models import User
+from payments.models import Payment
 from products.models import Product
-from .billing import compute_installment_status, derive_policy_billing_status, regenerate_installments
+from vehicles.models import Vehicle
+from .models import Policy, PolicyVehicle, PolicyInstallment
+from .billing import (
+    compute_installment_status,
+    derive_policy_billing_status,
+    ensure_policy_end_date,
+    regenerate_installments,
+)
 
 
 class PolicyVehicleSerializer(serializers.ModelSerializer):
@@ -50,6 +60,7 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 
 class PolicyInstallmentSerializer(serializers.ModelSerializer):
     effective_status = serializers.SerializerMethodField()
+    payment = serializers.SerializerMethodField()
 
     class Meta:
         model = PolicyInstallment
@@ -72,9 +83,26 @@ class PolicyInstallmentSerializer(serializers.ModelSerializer):
     def get_effective_status(self, obj):
         return compute_installment_status(obj)
 
+    def get_payment(self, obj):
+        if hasattr(obj, "_payment_id"):
+            return getattr(obj, "_payment_id")
+        payment = (
+            Payment.objects.filter(installment=obj)
+            .only("id")
+            .order_by("-id")
+            .first()
+        )
+        return payment.id if payment else None
+
 
 class PolicySerializer(serializers.ModelSerializer):
-    vehicle = PolicyVehicleSerializer(required=False)
+    vehicle = PolicyVehicleSerializer(required=False, write_only=True)
+    vehicle_id = serializers.PrimaryKeyRelatedField(
+        queryset=Vehicle.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
     installments = serializers.SerializerMethodField()
     user = UserMinimalSerializer(read_only=True)
     user_id = serializers.PrimaryKeyRelatedField(
@@ -94,8 +122,8 @@ class PolicySerializer(serializers.ModelSerializer):
     client_end_date = serializers.SerializerMethodField()
     payment_start_date = serializers.SerializerMethodField()
     payment_end_date = serializers.SerializerMethodField()
-    price_update_from = serializers.SerializerMethodField()
-    price_update_to = serializers.SerializerMethodField()
+    adjustment_from = serializers.SerializerMethodField()
+    adjustment_to = serializers.SerializerMethodField()
     real_end_date = serializers.SerializerMethodField()
     has_pending_charge = serializers.SerializerMethodField()
     has_paid_in_window = serializers.SerializerMethodField()
@@ -119,14 +147,15 @@ class PolicySerializer(serializers.ModelSerializer):
             "real_end_date",
             "payment_start_date",
             "payment_end_date",
-            "price_update_from",
-            "price_update_to",
+            "adjustment_from",
+            "adjustment_to",
             "has_pending_charge",
             "has_paid_in_window",
             "claim_code",
             "billing_status",
             "installments",
             "vehicle",
+            "vehicle_id",
             "created_at",
             "updated_at",
         ]
@@ -147,18 +176,19 @@ class PolicySerializer(serializers.ModelSerializer):
     def get_payment_end_date(self, obj):
         return self._timeline_value(obj, "payment_end_date")
 
-    def get_price_update_from(self, obj):
-        return self._timeline_value(obj, "price_update_from")
+    def get_adjustment_from(self, obj):
+        return self._timeline_value(obj, "adjustment_from")
 
-    def get_price_update_to(self, obj):
-        return self._timeline_value(obj, "price_update_to")
+    def get_adjustment_to(self, obj):
+        return self._timeline_value(obj, "adjustment_to")
 
     def get_real_end_date(self, obj):
         return self._timeline_value(obj, "real_end_date") or getattr(obj, "end_date", None)
 
     def get_has_pending_charge(self, obj):
         try:
-            return obj.charges.filter(status="pending").exists()
+            # Charge is gone; we rely solely on installments to detect pending amounts.
+            return obj.installments.exclude(status=PolicyInstallment.Status.PAID).exists()
         except Exception:
             return False
 
@@ -171,10 +201,11 @@ class PolicySerializer(serializers.ModelSerializer):
                 return False
             start_d = date.fromisoformat(start) if isinstance(start, str) else start
             end_d = date.fromisoformat(end) if isinstance(end, str) else end
-            return obj.charges.filter(
-                status="paid",
-                due_date__gte=start_d,
-                due_date__lte=end_d,
+            # Reflect paid history via installments because no Charge model exists anymore.
+            return obj.installments.filter(
+                status=PolicyInstallment.Status.PAID,
+                paid_at__date__gte=start_d,
+                paid_at__date__lte=end_d,
             ).exists()
         except Exception:
             return False
@@ -194,6 +225,13 @@ class PolicySerializer(serializers.ModelSerializer):
         # Actualizamos en memoria para reflejar el estado correcto en la API
         for inst in installments:
             inst.status = compute_installment_status(inst)
+            inst._payment_id = None
+        installment_ids = [inst.id for inst in installments if inst.id]
+        if installment_ids:
+            payments = Payment.objects.filter(installment_id__in=installment_ids)
+            payment_by_installment = {p.installment_id: p.id for p in payments}
+            for inst in installments:
+                inst._payment_id = payment_by_installment.get(inst.id)
         return PolicyInstallmentSerializer(installments, many=True).data
 
     def _timeline_value(self, obj, key):
@@ -218,29 +256,37 @@ class PolicySerializer(serializers.ModelSerializer):
         if not start_date:
             raise ValidationError({"start_date": "Definí la fecha de inicio de vigencia."})
 
+        vehicle_ref = data.get("vehicle_id")
+        user = data.get("user") or getattr(self.instance, "user", None)
+        if vehicle_ref and user and vehicle_ref.owner_id != user.id:
+            raise ValidationError(
+                {"vehicle_id": "El vehículo debe pertenecer al titular de la póliza."}
+            )
         return data
 
     def create(self, validated_data):
         validated_data = self._ensure_number(validated_data)
         validated_data = self._ensure_claim_code(validated_data)
-        vehicle_data = self._clean_vehicle_data(validated_data.pop("vehicle", None))
+        vehicle_payload = validated_data.pop("vehicle", None)
+        vehicle_ref = validated_data.pop("vehicle_id", None)
+        vehicle_data = self._clean_vehicle_data(vehicle_payload)
         policy = super().create(validated_data)
+        self._assign_vehicle(policy, vehicle_ref, vehicle_data)
+        ensure_policy_end_date(policy)
         regenerate_installments(policy)
-        if vehicle_data:
-            PolicyVehicle.objects.create(policy=policy, **vehicle_data)
         return policy
 
     def update(self, instance, validated_data):
         validated_data = self._ensure_number(validated_data, allow_keep=True, instance=instance)
         validated_data = self._ensure_claim_code(validated_data, instance=instance)
-        vehicle_data = self._clean_vehicle_data(validated_data.pop("vehicle", None))
+        vehicle_payload = validated_data.pop("vehicle", None)
+        vehicle_ref = validated_data.pop("vehicle_id", None)
+        vehicle_data = self._clean_vehicle_data(vehicle_payload)
         policy = super().update(instance, validated_data)
         # Si cambia vigencia o precio mensual regeneramos cuotas
+        ensure_policy_end_date(policy)
         regenerate_installments(policy)
-        if vehicle_data is not None:
-            PolicyVehicle.objects.update_or_create(
-                policy=policy, defaults=vehicle_data
-            )
+        self._assign_vehicle(policy, vehicle_ref, vehicle_data)
         return policy
 
     def _clean_vehicle_data(self, vehicle_data):
@@ -269,30 +315,72 @@ class PolicySerializer(serializers.ModelSerializer):
             raise ValidationError({"vehicle": "El año del vehículo es obligatorio si cargás datos de vehículo."})
         return cleaned
 
-    def _generate_number(self):
-        import secrets
+    def _assign_vehicle(self, policy, vehicle_ref, vehicle_data):
+        if vehicle_ref is not None:
+            self._validate_vehicle_owner(policy, vehicle_ref)
+            if policy.vehicle_id != vehicle_ref.id:
+                policy.vehicle = vehicle_ref
+                policy.save(update_fields=["vehicle"])
+            return
+        if vehicle_data:
+            vehicle = self._resolve_or_create_vehicle(policy, vehicle_data)
+            if vehicle and policy.vehicle_id != vehicle.id:
+                policy.vehicle = vehicle
+                policy.save(update_fields=["vehicle"])
 
-        for _ in range(5):
-            candidate = f"SC-{secrets.token_hex(3).upper()}"
-            if not Policy.objects.filter(number=candidate).exists():
-                return candidate
-        # fallback, aunque muy improbable
-        return f"SC-{secrets.token_hex(4).upper()}"
+    def _validate_vehicle_owner(self, policy, vehicle):
+        if policy.user_id and vehicle.owner_id != policy.user_id:
+            raise ValidationError(
+                {"vehicle_id": "El vehículo debe pertenecer al titular de la póliza."}
+            )
+
+    def _resolve_or_create_vehicle(self, policy, vehicle_data):
+        if not policy.user_id:
+            return None
+        plate = vehicle_data.get("plate")
+        if not plate:
+            return None
+        plate_norm = plate.strip().upper()
+        vehicle, created = Vehicle.objects.get_or_create(
+            owner_id=policy.user_id,
+            license_plate=plate_norm,
+            defaults={
+                "vtype": "AUTO",
+                "brand": vehicle_data.get("make") or "Desconocida",
+                "model": vehicle_data.get("model") or "Sin modelo",
+                "year": vehicle_data.get("year") or timezone.now().year,
+                "use": vehicle_data.get("usage") or "Particular",
+            },
+        )
+        return vehicle
+
+    def _normalize_number(self, raw_value):
+        """
+        Normaliza y valida que el número comience con el prefijo obligatorio.
+        """
+        if raw_value is None:
+            raise ValidationError({"number": "Indicá el número de póliza (ej: SC-1234)."})
+        value = str(raw_value).strip()
+        if not value:
+            raise ValidationError({"number": "Indicá el número de póliza (ej: SC-1234)."})
+        if value[:3].upper() != "SC-":
+            raise ValidationError({"number": "El número de póliza debe comenzar con 'SC-'."})
+        return "SC-" + value[3:]
 
     def _ensure_number(self, validated_data, allow_keep=False, instance=None):
         """
-        - Si viene number con contenido, lo deja.
-        - Si viene number vacío o None, genera uno nuevo.
+        - Si viene number con contenido válido, lo normaliza.
         - En update, si allow_keep=True y no viene number, conserva el actual.
+        - En creación, exige que el admin provea el número.
         """
         number = validated_data.get("number", None)
         if number not in (None, ""):
+            validated_data["number"] = self._normalize_number(number)
             return validated_data
         if allow_keep and instance is not None and instance.number:
             validated_data.pop("number", None)
             return validated_data
-        validated_data["number"] = self._generate_number()
-        return validated_data
+        raise ValidationError({"number": "Indicá el número de póliza (ej: SC-1234)."})
 
     def _ensure_claim_code(self, validated_data, instance=None):
         """
@@ -315,6 +403,28 @@ class PolicySerializer(serializers.ModelSerializer):
                 return candidate
         return f"SC-{secrets.token_hex(4).upper()}"
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["vehicle"] = self._represent_vehicle(instance.vehicle)
+        return data
+
+    def _represent_vehicle(self, vehicle):
+        if not vehicle:
+            return None
+        return {
+            "plate": vehicle.license_plate,
+            "make": vehicle.brand,
+            "model": vehicle.model,
+            "version": "",
+            "year": vehicle.year,
+            "city": "",
+            "has_garage": False,
+            "is_zero_km": False,
+            "usage": vehicle.use,
+            "has_gnc": False,
+            "gnc_amount": None,
+        }
+
 
 class PolicyClientListSerializer(serializers.ModelSerializer):
     product = serializers.SerializerMethodField()
@@ -323,8 +433,8 @@ class PolicyClientListSerializer(serializers.ModelSerializer):
     real_end_date = serializers.SerializerMethodField()
     payment_start_date = serializers.SerializerMethodField()
     payment_end_date = serializers.SerializerMethodField()
-    price_update_from = serializers.SerializerMethodField()
-    price_update_to = serializers.SerializerMethodField()
+    adjustment_from = serializers.SerializerMethodField()
+    adjustment_to = serializers.SerializerMethodField()
 
     class Meta:
         model = Policy
@@ -341,8 +451,8 @@ class PolicyClientListSerializer(serializers.ModelSerializer):
             "real_end_date",
             "payment_start_date",
             "payment_end_date",
-            "price_update_from",
-            "price_update_to",
+            "adjustment_from",
+            "adjustment_to",
         ]
 
     def get_client_end_date(self, obj):
@@ -354,11 +464,11 @@ class PolicyClientListSerializer(serializers.ModelSerializer):
     def get_payment_end_date(self, obj):
         return self._timeline_value(obj, "payment_end_date")
 
-    def get_price_update_from(self, obj):
-        return self._timeline_value(obj, "price_update_from")
+    def get_adjustment_from(self, obj):
+        return self._timeline_value(obj, "adjustment_from")
 
-    def get_price_update_to(self, obj):
-        return self._timeline_value(obj, "price_update_to")
+    def get_adjustment_to(self, obj):
+        return self._timeline_value(obj, "adjustment_to")
 
     def get_real_end_date(self, obj):
         return self._timeline_value(obj, "real_end_date") or getattr(obj, "end_date", None)
@@ -382,8 +492,8 @@ class PolicyClientDetailSerializer(serializers.ModelSerializer):
     real_end_date = serializers.SerializerMethodField()
     payment_start_date = serializers.SerializerMethodField()
     payment_end_date = serializers.SerializerMethodField()
-    price_update_from = serializers.SerializerMethodField()
-    price_update_to = serializers.SerializerMethodField()
+    adjustment_from = serializers.SerializerMethodField()
+    adjustment_to = serializers.SerializerMethodField()
 
     class Meta:
         model = Policy
@@ -399,8 +509,8 @@ class PolicyClientDetailSerializer(serializers.ModelSerializer):
             "real_end_date",
             "payment_start_date",
             "payment_end_date",
-            "price_update_from",
-            "price_update_to",
+            "adjustment_from",
+            "adjustment_to",
             "product",
             "plate",
             "vehicle",
@@ -430,11 +540,11 @@ class PolicyClientDetailSerializer(serializers.ModelSerializer):
     def get_payment_end_date(self, obj):
         return self._timeline_value(obj, "payment_end_date")
 
-    def get_price_update_from(self, obj):
-        return self._timeline_value(obj, "price_update_from")
+    def get_adjustment_from(self, obj):
+        return self._timeline_value(obj, "adjustment_from")
 
-    def get_price_update_to(self, obj):
-        return self._timeline_value(obj, "price_update_to")
+    def get_adjustment_to(self, obj):
+        return self._timeline_value(obj, "adjustment_to")
 
     def get_real_end_date(self, obj):
         return self._timeline_value(obj, "real_end_date") or getattr(obj, "end_date", None)

@@ -65,9 +65,25 @@ function isValidDateStr(s) {
   return !Number.isNaN(d.getTime()) && s.length === 10;
 }
 
-function validateDraft(draft, { requireProduct = true, requireEnd = true, requirePremium = true } = {}) {
+function validateDraft(
+  draft,
+  {
+    requireProduct = true,
+    requireEnd = true,
+    requirePremium = true,
+    requireNumber = false,
+  } = {}
+) {
   const errors = {};
   if (requireProduct && !draft.product_id) errors.product_id = "Seleccioná un producto (ej: Plan básico).";
+
+  if (requireNumber) {
+    const numberValue = (draft.number ?? "").trim();
+    if (!numberValue) errors.number = "Ingresá el número de póliza (ej: SC-1234).";
+    else if (numberValue.slice(0, 3).toUpperCase() !== "SC-") {
+      errors.number = "El número de póliza debe comenzar con SC-.";
+    }
+  }
 
   if (!draft.start_date || !isValidDateStr(draft.start_date)) errors.start_date = "Ingresá inicio (ej: 2025-01-15).";
 
@@ -109,22 +125,10 @@ function displayRealDue(row, fallbackDay, offsetDays = 0) {
   return day ? `día ${day}` : "—";
 }
 
-function priceWindow(row, offsetDays) {
-  const explicitFrom = row?.price_update_from || "";
-  const explicitTo = row?.price_update_to || "";
-  if (explicitFrom && explicitTo) return { from: explicitFrom, to: explicitTo };
-
-  const offset = Number(offsetDays ?? row?.price_update_offset_days);
-  const baseEnd = explicitTo || row?.end_date;
-  if (!baseEnd || !Number.isFinite(offset) || offset < 0) return { from: explicitFrom, to: explicitTo };
-
-  const end = new Date(`${baseEnd}T00:00:00`);
-  if (Number.isNaN(end)) return { from: explicitFrom, to: explicitTo };
-
-  const from = new Date(end);
-  from.setDate(from.getDate() - offset);
-
-  return { from: from.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
+function adjustmentWindow(row) {
+  const from = row?.adjustment_from || "";
+  const to = row?.adjustment_to || "";
+  return { from, to };
 }
 
 const MONTHS_ES = [
@@ -133,15 +137,15 @@ const MONTHS_ES = [
 ];
 const PAGE_SIZE = 10;
 const EXPIRING_PAGE_SIZE = 3;
-const PRICE_UPDATE_PAGE_SIZE = 3;
+const ADJUSTMENT_PAGE_SIZE = 3;
 const SECTION_MAX_PAGES = 5;
 const SECTION_MAX_ITEMS = SECTION_MAX_PAGES * PAGE_SIZE;
 const EXPIRING_SECTION_MAX_ITEMS = SECTION_MAX_PAGES * EXPIRING_PAGE_SIZE;
-const PRICE_UPDATE_SECTION_MAX_ITEMS = SECTION_MAX_PAGES * PRICE_UPDATE_PAGE_SIZE;
+const ADJUSTMENT_SECTION_MAX_ITEMS = SECTION_MAX_PAGES * ADJUSTMENT_PAGE_SIZE;
 const ADMIN_FETCH_PAGE_SIZE = 200;
 
-function priceUpdateWindowLabel(row, offsetDays) {
-  const { from, to } = priceWindow(row, offsetDays);
+function adjustmentWindowLabel(row) {
+  const { from, to } = adjustmentWindow(row);
   if (!from || !to) return "—";
   const start = new Date(`${from}T00:00:00`);
   const end = new Date(`${to}T00:00:00`);
@@ -154,8 +158,8 @@ function priceUpdateWindowLabel(row, offsetDays) {
   return `del ${startDay} de ${startMonth} al ${endDay} de ${endMonth}`;
 }
 
-function priceUpdateDaysLeft(row, offsetDays) {
-  const target = priceWindow(row, offsetDays)?.to || row?.end_date;
+function adjustmentDaysLeft(row) {
+  const target = adjustmentWindow(row)?.to || row?.end_date;
   const days = daysUntil(target);
   if (!Number.isFinite(days)) return null;
   return Math.max(days, 0);
@@ -224,10 +228,10 @@ function inDateWindow(startStr, endStr) {
   return Number.isFinite(startDiff) && startDiff <= 0 && (!Number.isFinite(endDiff) || endDiff >= 0);
 }
 
-function isPriceUpdateDue(row, offsetDays) {
+function isAdjustmentDue(row) {
   if (!row || row.status !== "active") return false;
   const stillValid = daysUntil(visibleEndDate(row)) >= 0;
-  const { from, to } = priceWindow(row, offsetDays);
+  const { from, to } = adjustmentWindow(row);
   return inDateWindow(from, to) && stillValid;
 }
 
@@ -237,11 +241,10 @@ export default function Policies() {
   const [err, setErr] = useState("");
   const [compact, setCompact] = useState(false);
   const [paymentWindowDays, setPaymentWindowDays] = useState(null);
-  const [priceUpdateOffsetDays, setPriceUpdateOffsetDays] = useState(null);
   const [expiringThresholdDays, setExpiringThresholdDays] = useState(30);
   const [page, setPage] = useState(1);
   const [expiringPage, setExpiringPage] = useState(1);
-  const [priceUpdatePage, setPriceUpdatePage] = useState(1);
+  const [adjustmentPage, setAdjustmentPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("");
 
   // combos
@@ -354,9 +357,6 @@ export default function Policies() {
       const windowDays = Number(readMaybe(s, ["payment_window_days", "paymentWindowDays"]));
       if (Number.isFinite(windowDays) && windowDays > 0) setPaymentWindowDays(windowDays);
 
-      const priceOffset = Number(readMaybe(s, ["price_update_offset_days", "priceUpdateOffsetDays"]));
-      if (Number.isFinite(priceOffset) && priceOffset >= 0) setPriceUpdateOffsetDays(priceOffset);
-
       const displayDay = Number(readMaybe(s, ["payment_due_day_display", "paymentDueDayDisplay"]));
       if (Number.isFinite(displayDay) && displayDay > 0) setDueDayDisplay(displayDay);
       const expiringThreshold = Number(readMaybe(s, ["expiring_threshold_days", "expiringThresholdDays"]));
@@ -448,17 +448,17 @@ export default function Policies() {
     return list;
   }, [activeFiltered, paymentWindowDays, dueDayDisplay, expiringThresholdDays]);
 
-  const priceUpdates = useMemo(() => {
+  const adjustments = useMemo(() => {
     const list = [];
     for (const p of activeFiltered) {
-      if (isPriceUpdateDue(p, priceUpdateOffsetDays)) {
-        const { from } = priceWindow(p, priceUpdateOffsetDays);
+      if (isAdjustmentDue(p)) {
+        const { from } = adjustmentWindow(p);
         list.push({ ...p, __daysToPayment: daysUntil(from || visibleEndDate(p)) });
       }
     }
     list.sort((a, b) => (a.__daysToPayment ?? 9999) - (b.__daysToPayment ?? 9999));
     return list;
-  }, [activeFiltered, priceUpdateOffsetDays]);
+  }, [activeFiltered]);
 
   const installments = useMemo(() => {
     const list = [];
@@ -504,11 +504,11 @@ export default function Policies() {
   const safeExpiringPage = Math.min(expiringPage, expiringPageCount);
   const expiringPageRows = expiring.slice((safeExpiringPage - 1) * EXPIRING_PAGE_SIZE, safeExpiringPage * EXPIRING_PAGE_SIZE);
   const expiringHasOverflow = expiring.length > EXPIRING_SECTION_MAX_ITEMS;
-  const priceUpdateRawPages = Math.max(1, Math.ceil(priceUpdates.length / PRICE_UPDATE_PAGE_SIZE));
-  const priceUpdatePageCount = Math.min(SECTION_MAX_PAGES, priceUpdateRawPages);
-  const safePriceUpdatePage = Math.min(priceUpdatePage, priceUpdatePageCount);
-  const priceUpdatePageRows = priceUpdates.slice((safePriceUpdatePage - 1) * PRICE_UPDATE_PAGE_SIZE, safePriceUpdatePage * PRICE_UPDATE_PAGE_SIZE);
-  const priceUpdateHasOverflow = priceUpdates.length > PRICE_UPDATE_SECTION_MAX_ITEMS;
+  const adjustmentRawPages = Math.max(1, Math.ceil(adjustments.length / ADJUSTMENT_PAGE_SIZE));
+  const adjustmentPageCount = Math.min(SECTION_MAX_PAGES, adjustmentRawPages);
+  const safeAdjustmentPage = Math.min(adjustmentPage, adjustmentPageCount);
+  const adjustmentPageRows = adjustments.slice((safeAdjustmentPage - 1) * ADJUSTMENT_PAGE_SIZE, safeAdjustmentPage * ADJUSTMENT_PAGE_SIZE);
+  const adjustmentHasOverflow = adjustments.length > ADJUSTMENT_SECTION_MAX_ITEMS;
 
   useEffect(() => {
     setPage(1);
@@ -519,8 +519,8 @@ export default function Policies() {
   }, [expiring.length]);
 
   useEffect(() => {
-    setPriceUpdatePage(1);
-  }, [priceUpdates.length]);
+    setAdjustmentPage(1);
+  }, [adjustments.length]);
 
   // --- CRUD/acciones (mantuve tu lógica original; acá sólo ajusté labels/ventanas) ---
   function openCreate() {
@@ -530,6 +530,7 @@ export default function Policies() {
     setEditing({
       id: null,
       user_id: null,
+      number: "",
       product_id: products?.[0]?.id ?? null,
       premium: "",
       start_date: startDate,
@@ -546,6 +547,7 @@ export default function Policies() {
     setEditing({
       id: row.id,
       user_id: row.user?.id ?? row.user_id ?? null,
+      number: row.number ?? "",
       product_id: row.product?.id ?? row.product_id ?? row.insurance_type_id ?? null,
       premium: row.premium ?? "",
       start_date: row.start_date ?? "",
@@ -862,7 +864,12 @@ export default function Policies() {
     if (!editing) return;
 
     // Validaciones front
-    const errs = validateDraft(editing, { requireProduct: true, requireEnd: true, requirePremium: true });
+    const errs = validateDraft(editing, {
+      requireProduct: true,
+      requireEnd: true,
+      requirePremium: true,
+      requireNumber: true,
+    });
     setEditingErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
@@ -873,6 +880,8 @@ export default function Policies() {
       end_date: editing.end_date || null,
       status: editing.status,
     };
+    const trimmedNumber = (editing.number ?? "").trim();
+    if (trimmedNumber) payload.number = trimmedNumber;
     if (!(editing.premium === "" || editing.premium == null)) {
       const num = Number(editing.premium);
       if (Number.isFinite(num)) payload.premium = num;
@@ -1221,16 +1230,16 @@ export default function Policies() {
         </div>
       )}
 
-      {/* Ajuste de precio */}
-      {priceUpdates.length > 0 && (
-        <div className="card-like card--expiring card--price-update">
+      {/* Período de ajuste */}
+      {adjustments.length > 0 && (
+        <div className="card-like card--expiring card--price-update card--adjustment">
           <div className="admin__head admin__head--tight">
-            <h3 className="heading-tight m-0">En ventana de ajuste de precio</h3>
-            <span className="muted small">Se listan pólizas que ya pueden actualizar el valor antes del próximo cobro.</span>
+            <h3 className="heading-tight m-0">En período de ajuste</h3>
+            <span className="muted small">Se listan pólizas cuya ventana de ajuste ya está abierta.</span>
           </div>
           {compact ? (
             <div className="compact-list">
-              {priceUpdatePageRows.map((r) => (
+              {adjustmentPageRows.map((r) => (
                 <div className="compact-item" key={`adj-${r.id}`}>
                   <div className="compact-main">
                     <div className="compact-text">
@@ -1238,19 +1247,21 @@ export default function Policies() {
                         <p className="compact-title">{r.number || `#${r.id}`}</p>
                         <span className="badge badge--status">Ajustar</span>
                       </div>
-                      <p className="compact-sub">{r.vehicle?.plate || "—"} · {displayUser(r)} · Desde {r.price_update_from || "—"}</p>
+                      <p className="compact-sub">
+                        {r.vehicle?.plate || "—"} · {displayUser(r)} · Desde {r.adjustment_from || "—"}
+                      </p>
                     </div>
                     <div className="row-actions">
                       <button
                         className="compact-toggle"
-                        onClick={() => openInline(r, "price")}
+                        onClick={() => openInline(r, "adjustment")}
                         aria-label="Gestionar"
                       >
-                        {expandedId === r.id && expandedSection === "price" ? "–" : "+"}
+                        {expandedId === r.id && expandedSection === "adjustment" ? "–" : "+"}
                       </button>
                     </div>
                   </div>
-                  {expandedSection === "price" && expandedId === r.id && inlineDraft && renderInlineDetails(r)}
+                  {expandedSection === "adjustment" && expandedId === r.id && inlineDraft && renderInlineDetails(r)}
                 </div>
               ))}
             </div>
@@ -1263,13 +1274,13 @@ export default function Policies() {
                     <th>Seguro</th>
                     <th>Patente</th>
                     <th>Usuario</th>
-                    <th className="small">Ajustar en</th>
+                    <th className="small">Período de ajuste</th>
                     <th>Cuota</th>
                     <th className="actions-col" aria-label="Acciones"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {priceUpdatePageRows.map((r) => (
+                  {adjustmentPageRows.map((r) => (
                     <tr key={`adj-${r.id}`}>
                       <td>{r.number || `#${r.id}`}</td>
                       <td>{displayProduct(r)}</td>
@@ -1277,9 +1288,10 @@ export default function Policies() {
                       <td>{displayUser(r)}</td>
                       <td className="small">
                         <span className="countdown-chip" title="Días restantes para ajustar">
-                          {priceUpdateDaysLeft(r, priceUpdateOffsetDays) != null
-                            ? `${priceUpdateDaysLeft(r, priceUpdateOffsetDays)} día${sPlural(priceUpdateDaysLeft(r, priceUpdateOffsetDays))}`
-                            : "—"}
+                          {(() => {
+                            const days = adjustmentDaysLeft(r);
+                            return days != null ? `${days} día${sPlural(days)}` : "—";
+                          })()}
                         </span>
                       </td>
                       <td>${r.premium ?? "—"}</td>
@@ -1296,32 +1308,32 @@ export default function Policies() {
               </table>
             </div>
           )}
-          {priceUpdatePageCount > 1 && (
+          {adjustmentPageCount > 1 && (
             <div className="pagination pagination--enhanced pagination--section">
               <div className="pagination__controls">
                 <button
                   className="btn btn--outline"
-                  onClick={() => setPriceUpdatePage((p) => Math.max(1, p - 1))}
-                  disabled={safePriceUpdatePage <= 1}
+                  onClick={() => setAdjustmentPage((p) => Math.max(1, p - 1))}
+                  disabled={safeAdjustmentPage <= 1}
                 >
                   Anterior
                 </button>
                 <span className="muted">
-                  Página {safePriceUpdatePage} de {priceUpdatePageCount}
+                  Página {safeAdjustmentPage} de {adjustmentPageCount}
                 </span>
                 <button
                   className="btn btn--outline"
-                  onClick={() => setPriceUpdatePage((p) => Math.min(priceUpdatePageCount, p + 1))}
-                  disabled={safePriceUpdatePage >= priceUpdatePageCount}
+                  onClick={() => setAdjustmentPage((p) => Math.min(adjustmentPageCount, p + 1))}
+                  disabled={safeAdjustmentPage >= adjustmentPageCount}
                 >
                   Siguiente
                 </button>
               </div>
             </div>
           )}
-          {priceUpdateHasOverflow && (
+          {adjustmentHasOverflow && (
             <p className="muted small mt-8">
-              Solo se muestran las primeras {PRICE_UPDATE_SECTION_MAX_ITEMS} pólizas en ventana de ajuste.
+              Solo se muestran las primeras {ADJUSTMENT_SECTION_MAX_ITEMS} pólizas en período de ajuste.
             </p>
           )}
         </div>
@@ -1566,7 +1578,7 @@ export default function Policies() {
 
                 <div className="detail-row">
                   <div className="detail-label">Periodo de ajuste</div>
-                  <div className="detail-value muted">{priceUpdateWindowLabel(previewRow || {}, priceUpdateOffsetDays)}</div>
+                  <div className="detail-value muted">{adjustmentWindowLabel(previewRow || {})}</div>
                 </div>
 
                 <div className="detail-row">
@@ -1853,6 +1865,25 @@ export default function Policies() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="detail-row">
+                <div className="detail-label">Número</div>
+                <input
+                  className={inputClass("detail-input", editingErrors.number)}
+                  placeholder="SC-1234"
+                  value={editing.number ?? ""}
+                  onChange={(e) => {
+                    setEditing((p) => ({ ...p, number: e.target.value }));
+                    setEditingErrors((er) => {
+                      const next = { ...er };
+                      delete next.number;
+                      return next;
+                    });
+                  }}
+                />
+                <small className="muted">Debe comenzar con SC-.</small>
+                {editingErrors.number && <small className="field-error">{editingErrors.number}</small>}
               </div>
 
               <div className="detail-row">

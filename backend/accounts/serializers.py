@@ -37,8 +37,15 @@ class UserSerializer(serializers.ModelSerializer):
         - Solo los admins (allow_policy_ids=True) pueden vincular/desvincular pólizas.
         """
         policy_ids = validated_data.pop("policy_ids", None)
+        email_update = validated_data.pop("email", None)
+        is_active_update = validated_data.pop("is_active", None)
         password = (validated_data.pop("password", None) or "").strip()
 
+        if self.allow_policy_ids:
+            if email_update is not None:
+                validated_data["email"] = email_update
+            if is_active_update is not None:
+                validated_data["is_active"] = is_active_update
         user = super().update(instance, validated_data)
 
         if password:
@@ -58,6 +65,8 @@ class UserSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         policy_ids = validated_data.pop("policy_ids", [])
+        if not self.allow_policy_ids:
+            validated_data.pop("is_active", None)
         raw_password = (validated_data.pop("password", None) or "").strip()
         password = raw_password or get_random_string(12)  # siempre asignamos un password utilizable
         dni = validated_data.pop("dni")

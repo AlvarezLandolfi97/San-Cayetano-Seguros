@@ -40,20 +40,20 @@ def _policy_timeline(policy, settings_obj):
     today = date.today()
     cycle = current_payment_cycle(policy, settings_obj, today=today) or {}
 
-    client_due = cycle.get("payment_window_end") if cycle else None
-    real_due = cycle.get("due_real") if cycle else getattr(policy, "end_date", None)
-    payment_start = cycle.get("payment_window_start") if cycle else getattr(policy, "start_date", None)
-    payment_end = cycle.get("due_real") if cycle else real_due
+    client_due = cycle.get("due_display") or getattr(policy, "end_date", None)
+    real_due = cycle.get("due_real") or getattr(policy, "end_date", None)
+    payment_start = cycle.get("payment_window_start") or getattr(policy, "start_date", None)
+    payment_end = cycle.get("payment_window_end") or real_due or getattr(policy, "end_date", None)
 
-    price_update_from, price_update_to = next_price_update_window(policy, settings_obj, today=today)
+    adjustment_from, adjustment_to = next_price_update_window(policy, settings_obj, today=today)
 
     return {
         "real_end_date": real_due,
         "client_end_date": client_due,
         "payment_start_date": payment_start,
         "payment_end_date": payment_end,
-        "price_update_from": price_update_from,
-        "price_update_to": price_update_to,
+        "adjustment_from": adjustment_from,
+        "adjustment_to": adjustment_to,
     }
 
 
@@ -118,7 +118,7 @@ class IsOwnerOrAdmin(permissions.BasePermission):
         return bool(user.is_staff or obj.user_id == user.id)
 
 
-class PolicyViewSet(viewsets.ModelViewSet):
+class PolicyBaseViewSet(viewsets.ModelViewSet):
     serializer_class = PolicySerializer
     refresh_on_read_default = _env_bool(os.getenv("POLICY_REFRESH_ON_READ"))
 
@@ -126,48 +126,43 @@ class PolicyViewSet(viewsets.ModelViewSet):
         return (
             Policy.objects.select_related("user", "product", "vehicle")
             .prefetch_related(
-                Prefetch("vehicle", queryset=PolicyVehicle.objects.all()),
+                Prefetch("legacy_vehicle", queryset=PolicyVehicle.objects.all()),
                 "installments",
             )
             .order_by("-id")
         )
-
-    def get_permissions(self):
-        if self.action in ["my", "claim"]:
-            return [permissions.IsAuthenticated()]
-        if self.action in ["retrieve", "receipts"]:
-            return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
-        if self.action in ["list", "create", "update", "partial_update", "destroy"]:
-            return [permissions.IsAdminUser()]
-        return [permissions.IsAdminUser()]
 
     def list(self, request, *args, **kwargs):
         qs = self.get_queryset()
         # filtros admin: search por number o plate, solo sin usuario
         q = (request.query_params.get("search") or "").strip()
         if q:
-            qs = qs.filter(Q(number__icontains=q) | Q(vehicle__plate__icontains=q))
+            qs = qs.filter(
+                Q(number__icontains=q)
+                | Q(vehicle__license_plate__icontains=q)
+                | Q(legacy_vehicle__plate__icontains=q)
+            )
         only_unassigned = (request.query_params.get("only_unassigned") or "").lower() in ("1", "true", "yes")
         if only_unassigned:
             qs = qs.filter(user__isnull=True)
         refresh_flag = (request.query_params.get("refresh") or "").lower() in ("1", "true", "yes")
         allow_refresh = refresh_flag or self.refresh_on_read_default
-        # client_end_date derivado solo sobre la página actual para evitar cargas masivas
         settings_obj = AppSettings.get_solo()
         page = self.paginate_queryset(qs)
         policies = list(page or qs)
         if allow_refresh:
             for policy in policies:
-                if not policy.installments.exists() and policy.start_date:
-                    regenerate_installments(policy)
-                refresh_installment_statuses(policy.installments.all(), persist=True)
-                update_policy_status_from_installments(policy, policy.installments.all(), persist=True)
+                self._touch_installments(policy, persist=False)
         timeline_map = {p.id: _policy_timeline(p, settings_obj) for p in policies}
         serializer = PolicySerializer(policies, many=True, context={"timeline_map": timeline_map})
 
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
+
+    def _touch_installments(self, policy, *, persist=False):
+        refresh_installment_statuses(policy.installments.all(), persist=persist)
+        update_policy_status_from_installments(policy, policy.installments.all(), persist=persist)
 
     @action(detail=False, methods=["get"], url_path="my")
     def my(self, request):
@@ -178,8 +173,7 @@ class PolicyViewSet(viewsets.ModelViewSet):
         allow_refresh = refresh_flag or self.refresh_on_read_default
         if allow_refresh:
             for policy in policies:
-                refresh_installment_statuses(policy.installments.all(), persist=True)
-                update_policy_status_from_installments(policy, policy.installments.all(), persist=True)
+                self._touch_installments(policy, persist=False)
         timeline_map = {p.id: _policy_timeline(p, settings_obj) for p in policies}
         serializer = PolicyClientListSerializer(
             policies,
@@ -193,7 +187,8 @@ class PolicyViewSet(viewsets.ModelViewSet):
             item["client_end_date"] = cid
             item["payment_start_date"] = timeline.get("payment_start_date")
             item["payment_end_date"] = timeline.get("payment_end_date")
-            item["price_update_from"] = timeline.get("price_update_from")
+            item["adjustment_from"] = timeline.get("adjustment_from")
+            item["adjustment_to"] = timeline.get("adjustment_to")
             item["status"] = _client_status(
                 item["status"],
                 cid,
@@ -209,11 +204,34 @@ class PolicyViewSet(viewsets.ModelViewSet):
         refresh_flag = (request.query_params.get("refresh") or "").lower() in ("1", "true", "yes")
         allow_refresh = refresh_flag or self.refresh_on_read_default
         if allow_refresh:
-            refresh_installment_statuses(obj.installments.all(), persist=True)
-            update_policy_status_from_installments(obj, obj.installments.all(), persist=True)
+            self._touch_installments(obj, persist=False)
         timeline = _policy_timeline(obj, settings_obj)
         serializer = PolicyClientDetailSerializer(
             obj, context={"timeline_map": {obj.id: timeline}}
+        )
+        data = serializer.data
+        cid = timeline.get("client_end_date")
+        data["client_end_date"] = cid
+        data["status"] = _client_status(
+            data.get("status"),
+            cid,
+            timeline.get("real_end_date"),
+            timeline.get("payment_end_date"),
+        )
+        return Response(data)
+
+    @action(detail=True, methods=["post"], url_path="refresh")
+    def refresh(self, request, pk=None):
+        policy = self.get_object()
+        self.check_object_permissions(request, policy)
+        settings_obj = AppSettings.get_solo()
+        if policy.start_date and not policy.installments.exists():
+            regenerate_installments(policy)
+        policy.refresh_from_db()
+        self._touch_installments(policy, persist=True)
+        timeline = _policy_timeline(policy, settings_obj)
+        serializer = PolicyClientDetailSerializer(
+            policy, context={"timeline_map": {policy.id: timeline}}
         )
         data = serializer.data
         cid = timeline.get("client_end_date")
@@ -301,48 +319,44 @@ class PolicyViewSet(viewsets.ModelViewSet):
         policy.save(update_fields=["claim_code", "updated_at"])
         return Response({"claim_code": policy.claim_code})
 
-    def _apply_default_end_date(self, serializer):
-        """
-        Si se envía fecha de inicio sin fecha de fin, aplicamos duración por defecto.
-        """
-        data = serializer.validated_data
-        start = data.get("start_date")
-        end = data.get("end_date")
-        if start and (end is None or end == ""):
-            settings_obj = AppSettings.get_solo()
-            months = getattr(settings_obj, "default_term_months", 0) or 0
-            if months > 0:
-                computed = _add_months(start, months)
-                if computed:
-                    serializer.save(end_date=computed)
-                    return True
-        return False
-
     def perform_create(self, serializer):
-        if not self._apply_default_end_date(serializer):
-            serializer.save()
+        serializer.save()
 
     def perform_update(self, serializer):
         settings_obj = AppSettings.get_solo()
         data = serializer.validated_data
         instance = serializer.instance
 
-        # Si se actualiza el monto dentro de la ventana de ajuste, se arranca un nuevo período:
+        # Si se actualiza el monto dentro del periodo de ajuste reportado, se arranca un nuevo período:
         premium_changed = "premium" in data
         prev_end = getattr(instance, "end_date", None)
         timeline = _policy_timeline(instance, settings_obj)
-        in_price_window = _date_in_window(
-            timeline.get("price_update_from"),
-            timeline.get("price_update_to"),
-        )
-        if premium_changed and prev_end and in_price_window:
-            term_months = getattr(settings_obj, "default_term_months", None)
-            if not term_months:
-                term_months = getattr(settings_obj, "price_update_every_months", 0) or 3
+        adjustment_start = timeline.get("adjustment_from")
+        adjustment_end = timeline.get("adjustment_to")
+        in_adjustment_window = _date_in_window(adjustment_start, adjustment_end)
+        if premium_changed and prev_end and in_adjustment_window:
+            term_months = getattr(settings_obj, "default_term_months", 0) or 0
+            if term_months <= 0:
+                term_months = 3
             new_start = prev_end
             new_end = _add_months(prev_end, term_months)
             data["start_date"] = new_start
             data["end_date"] = new_end
 
-        if not self._apply_default_end_date(serializer):
-            serializer.save()
+        serializer.save()
+
+
+class PolicyViewSet(PolicyBaseViewSet):
+    def get_permissions(self):
+        if self.action in ["my", "claim"]:
+            return [permissions.IsAuthenticated()]
+        if self.action in ["retrieve", "receipts", "refresh"]:
+            return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
+        if self.action in ["list", "create", "update", "partial_update", "destroy"]:
+            return [permissions.IsAdminUser()]
+        return [permissions.IsAdminUser()]
+
+
+class AdminPolicyViewSet(PolicyBaseViewSet):
+    def get_permissions(self):
+        return [permissions.IsAdminUser()]

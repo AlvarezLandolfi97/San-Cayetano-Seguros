@@ -3,6 +3,8 @@ import { api } from "@/api";
 function normalizePolicy(raw = {}) {
   const fallbackId = `pol-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const id = raw.id ?? raw.policy_id ?? raw.number ?? fallbackId;
+  const adjustmentFrom = raw.adjustment_from || raw.adjustmentFrom || null;
+  const adjustmentTo = raw.adjustment_to || raw.adjustmentTo || null;
 
   return {
     id: String(id),
@@ -18,8 +20,8 @@ function normalizePolicy(raw = {}) {
     endDate: raw.client_end_date || raw.end_date || raw.endDate || null,
     paymentStartDate: raw.payment_start_date || raw.paymentStartDate || null,
     paymentEndDate: raw.payment_end_date || raw.paymentEndDate || null,
-    priceUpdateFrom: raw.price_update_from || raw.priceUpdateFrom || null,
-    priceUpdateTo: raw.price_update_to || raw.priceUpdateTo || null,
+    adjustmentFrom,
+    adjustmentTo,
   };
 }
 

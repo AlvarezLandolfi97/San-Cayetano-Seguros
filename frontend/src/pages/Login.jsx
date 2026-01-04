@@ -21,6 +21,8 @@ export default function Login() {
   const nav = useNavigate();
   const loc = useLocation();
   const { login } = useAuth();
+  const allowGoogle =
+    import.meta.env.VITE_ENABLE_GOOGLE === "true" && Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
   const [form, setForm] = useState({
     email: "",
@@ -207,13 +209,17 @@ export default function Login() {
             {loading ? "Ingresando..." : "Ingresar"}
           </button>
 
-          <div className="auth__divider">
-            <span>o</span>
-          </div>
+          {allowGoogle && (
+            <>
+              <div className="auth__divider">
+                <span>o</span>
+              </div>
 
-          <div className="google-login" aria-hidden={loading}>
-            <GoogleLoginButton onErrorMessage={setErr} disabled={loading} />
-          </div>
+              <div className="google-login" aria-hidden={loading}>
+                <GoogleLoginButton onErrorMessage={setErr} disabled={loading} />
+              </div>
+            </>
+          )}
 
           <p className="login-register">
             ¿No tenés cuenta?{" "}

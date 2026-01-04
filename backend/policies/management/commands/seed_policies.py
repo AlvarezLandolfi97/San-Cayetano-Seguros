@@ -5,7 +5,8 @@ from django.core.management.base import BaseCommand
 
 from accounts.models import User
 from common.models import AppSettings
-from policies.models import Policy, PolicyVehicle
+from policies.models import Policy
+from policies.management.commands._vehicle_helpers import cleanup_owner_vehicles, ensure_policy_vehicle
 from products.models import Product
 
 
@@ -131,7 +132,7 @@ class Command(BaseCommand):
         Crea polizas con y sin usuario asignado, con vehiculos asociados.
         """
         today = date.today()
-        price_every = max(1, getattr(AppSettings.get_solo(), "price_update_every_months", 3) or 3)
+        price_every = max(1, getattr(AppSettings.get_solo(), "default_term_months", 3) or 3)
         price_target_next_start = today + timedelta(days=1)
         demo_price_start = _shift_months(price_target_next_start, -price_every)
         policies = [
@@ -945,18 +946,15 @@ class Command(BaseCommand):
                 defaults=policy_defaults,
             )
             vehicle_data = item.get("vehicle")
-            if vehicle_data:
-                PolicyVehicle.objects.update_or_create(
-                    policy=policy,
-                    defaults=vehicle_data,
-                )
+            ensure_policy_vehicle(policy, vehicle_data)
 
     def _reset_data(self, demo_dnis, reset_products):
         """
         Borra datos existentes antes de sembrar de nuevo.
         """
         self.stdout.write("Limpiando datos previos...")
-        PolicyVehicle.objects.all().delete()
+        owner_ids = list(User.objects.filter(dni__in=demo_dnis).values_list("id", flat=True))
+        cleanup_owner_vehicles(owner_ids)
         Policy.objects.all().delete()
         User.objects.filter(dni__in=demo_dnis).delete()
         if reset_products:

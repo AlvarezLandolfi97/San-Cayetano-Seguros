@@ -56,6 +56,7 @@ class QuoteShareCreateSerializer(serializers.ModelSerializer):
             "usage",
             "has_gnc",
             "gnc_amount",
+            "expires_at",
             "photos",
         ]
 
@@ -97,6 +98,7 @@ class QuoteShareSerializer(serializers.ModelSerializer):
             "usage",
             "has_gnc",
             "gnc_amount",
+            "expires_at",
             "photos",
             "created_at",
         ]
