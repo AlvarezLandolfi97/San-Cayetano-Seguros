@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "@/api";
+import { apiPublic } from "@/api";
 import "@/styles/ContactSection.css";
 
 const FALLBACK = {
@@ -17,7 +17,7 @@ export default function ContactSection() {
     (async () => {
       try {
         // Base URL ya incluye /api
-        const { data } = await api.get("/common/contact-info/");
+        const { data } = await apiPublic.get("/common/contact-info");
         setContact({ ...FALLBACK, ...data });
       } catch {
         setContact(FALLBACK);

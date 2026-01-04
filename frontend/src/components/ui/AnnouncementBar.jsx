@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "@/api";
+import { apiPublic } from "@/api";
 import "./announcementbar.css";
 
 export default function AnnouncementBar() {
@@ -12,7 +12,7 @@ export default function AnnouncementBar() {
   useEffect(()=>{
     (async ()=>{
       try {
-        const { data } = await api.get("/announcements/");
+      const { data } = await apiPublic.get("/common/announcements");
         setItems(Array.isArray(data) ? data : []);
       } catch {}
     })();

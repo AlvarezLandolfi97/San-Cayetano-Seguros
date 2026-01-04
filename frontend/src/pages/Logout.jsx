@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "@/api";
+import { apiPublic } from "@/api";
 import useAuth from "@/hooks/useAuth";
 
 export default function Logout() {
@@ -12,7 +12,7 @@ export default function Logout() {
     (async () => {
       try {
         // si tu backend tiene endpoint de logout, se puede llamar
-        await api.post("/auth/logout").catch(() => {});
+        await apiPublic.post("/auth/logout").catch(() => {});
       } finally {
         logout(); // limpia tokens y estado
         setProcessing(false);

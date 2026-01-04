@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { apiPublic } from "../api";
 import "../styles/reset.css";
 
 export default function ResetRequest() {
@@ -18,7 +18,9 @@ export default function ResetRequest() {
 
     try {
       setLoading(true);
-      const { data } = await api.post("/auth/password/reset", { email: email.trim() });
+      const { data } = await apiPublic.post("/auth/password/reset", {
+        email: email.trim(),
+      });
       setSent(true);
       if (data?.detail) setErr("");
     } catch (e2) {

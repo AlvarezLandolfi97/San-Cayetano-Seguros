@@ -6,7 +6,7 @@ import PlansSection from "@/components/home/PlansSection";
 import HowItWorks from "@/components/home/HowItWorks";
 import ContactSection from "@/components/home/ContactSection";
 import "@/styles/Home.css";
-import { api } from "@/api";
+import { apiPublic } from "@/api";
 
 export default function Home() {
   const [types, setTypes] = useState([]);
@@ -36,14 +36,14 @@ export default function Home() {
       try {
         // Preferimos productos reales gestionados por el admin
         // Llamamos al backend real (el baseURL ya incluye /api)
-        const { data } = await api.get("/products/home");
+        const { data } = await apiPublic.get("/products/home");
         const list = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
         if (list.length) {
           setTypes(normalize(list));
           return;
         }
         // Fallback alternativo
-        const { data: alt } = await api.get("/products/");
+        const { data: alt } = await apiPublic.get("/products");
         const listAlt = Array.isArray(alt) ? alt : Array.isArray(alt?.results) ? alt.results : [];
         if (listAlt.length) {
           setTypes(normalize(listAlt));

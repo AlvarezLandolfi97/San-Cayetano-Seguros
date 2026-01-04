@@ -58,7 +58,7 @@ export function AuthProvider({ children }) {
     try {
       if (!user && access) {
         // ⚠️ Ajustá la ruta si tu backend usa /me en vez de /users/me
-        const { data } = await api.get("/users/me");
+        const { data } = await api.get("/accounts/users/me");
         if (data) setSession({ user: data });
       }
     } catch {
@@ -75,27 +75,20 @@ export function AuthProvider({ children }) {
     if (!input.includes("@")) {
       return input;
     }
-
-    try {
-      const { data } = await api.get("/users/lookup", {
-        params: { email: input.toLowerCase() },
-      });
-      return data?.dni || input;
-    } catch (err) {
-      if (err?.response?.status === 404) {
-        return input;
-      }
-      throw err;
-    }
+    return input.toLowerCase();
   }
 
   async function login({ email, password, otp }) {
     const identifier = await resolveLoginIdentifier(email);
-    const { data } = await api.post("/auth/login", {
-      email: identifier,
-      password,
-      otp,
-    });
+    const { data } = await api.post(
+      "/auth/login",
+      {
+        email: identifier,
+        password,
+        otp,
+      },
+      { requiresAuth: false }
+    );
     // Si el backend pide 2FA, devolvemos bandera y no seteamos sesión
     if (data?.require_otp) {
       return {
@@ -111,14 +104,20 @@ export function AuthProvider({ children }) {
   }
 
   async function googleLogin({ id_token }) {
-    const { data } = await api.post("/auth/google", { id_token });
+    const { data } = await api.post(
+      "/auth/google",
+      { id_token },
+      { requiresAuth: false }
+    );
     setSession({ user: data.user, access: data.access, refresh: data.refresh });
     return normalizeUser(data.user);
   }
 
   async function register(payload) {
     // ejemplo payload: { first_name, last_name, email, dni, phone, dob, password }
-    const { data } = await api.post("/auth/register", payload);
+    const { data } = await api.post("/auth/register", payload, {
+      requiresAuth: false,
+    });
     if (data?.access) setSession({ user: data.user, access: data.access, refresh: data.refresh });
     // devolvemos lo que venga pero normalizamos user si existe
     return data?.user ? { ...data, user: normalizeUser(data.user) } : data;
@@ -135,7 +134,11 @@ export function AuthProvider({ children }) {
 
     const p = (async () => {
       try {
-        const { data } = await api.post("/auth/refresh", { refresh });
+        const { data } = await api.post(
+          "/auth/refresh",
+          { refresh },
+          { requiresAuth: false }
+        );
         if (!data?.access) throw new Error("No access in refresh");
         // algunos backends devuelven también el user actualizado
         setSession({ access: data.access, user: data.user ?? user });

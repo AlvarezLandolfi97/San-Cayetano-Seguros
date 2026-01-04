@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api } from "../api";
+import { apiPublic } from "../api";
 import "../styles/reset.css";
 
 const strongEnough = (p) => typeof p === "string" && p.length >= 6;
@@ -38,7 +38,7 @@ export default function ResetConfirm() {
 
     try {
       setLoading(true);
-      await api.post("/auth/password/reset/confirm", {
+      await apiPublic.post("/auth/password/reset/confirm", {
         uid,
         token,
         new_password: form.password,

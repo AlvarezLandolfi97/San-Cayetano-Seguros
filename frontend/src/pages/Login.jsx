@@ -87,10 +87,16 @@ export default function Login() {
       const target = admin ? "/admin" : (canUseFrom ? from : "/dashboard/seguro");
       nav(target, { replace: true });
     } catch (e2) {
-      const msg =
-        e2?.response?.data?.detail ||
-        e2?.response?.data?.error ||
-        "No pudimos iniciar sesión. Revisá tus datos e intentá nuevamente.";
+      const detail =
+        e2?.response?.data?.detail || e2?.response?.data?.error || "";
+      const status = e2?.response?.status;
+      const fallbacks = {
+        400: "Credenciales inválidas o datos incompletos.",
+        401: "Credenciales inválidas.",
+        403: "Tu cuenta está inactiva. Contactá al administrador.",
+        429: "Demasiados intentos. Esperá unos minutos e intentá nuevamente.",
+      };
+      const msg = detail || fallbacks[status] || "No pudimos iniciar sesión. Revisá tus datos e intentá nuevamente.";
       setErr(msg);
       if (e2?.response?.data?.require_otp) {
         setNeedOtp(true);

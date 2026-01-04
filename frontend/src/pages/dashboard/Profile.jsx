@@ -24,7 +24,7 @@ export default function Profile() {
     let mounted = true;
     (async () => {
       try {
-        const { data } = await api.get("/users/me");
+        const { data } = await api.get("/accounts/users/me");
         if (!mounted) return;
         setForm({
           first_name: data.first_name || "",
@@ -69,7 +69,7 @@ export default function Profile() {
     setError("");
     try {
       const payload = { ...form, birth_date: form.birth_date || null };
-      const { data } = await api.put("/users/me", payload);
+      const { data } = await api.put("/accounts/users/me", payload);
       setSession({ user: { ...user, ...data } });
       setSaved(true);
     } catch (err) {
