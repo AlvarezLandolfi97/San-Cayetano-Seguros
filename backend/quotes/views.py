@@ -7,7 +7,7 @@ from rest_framework import status, permissions, throttling
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from common.authentication import SoftJWTAllowAnyMixin
+from common.security import PublicEndpointMixin
 from .serializers import QuoteInputSerializer, QuoteShareCreateSerializer, QuoteShareSerializer
 from .models import QuoteShare
 from products.models import Product
@@ -16,10 +16,11 @@ from products.models import Product
 logger = logging.getLogger(__name__)
 
 
-class QuoteView(SoftJWTAllowAnyMixin, APIView):
+class QuoteView(PublicEndpointMixin, APIView):
     # 🔓 Ahora es pública (no requiere login)
     # 🚦 Mantiene el scope para rate limit si está configurado en settings
     throttle_scope = "quotes"
+    public_write_allowed = True  # POST validado y usado por el formulario público
 
     def post(self, request):
         s = QuoteInputSerializer(data=request.data)
@@ -65,8 +66,9 @@ class QuoteView(SoftJWTAllowAnyMixin, APIView):
         return Response({'plans': result}, status=status.HTTP_200_OK)
 
 
-class QuoteShareCreateView(SoftJWTAllowAnyMixin, APIView):
+class QuoteShareCreateView(PublicEndpointMixin, APIView):
     throttle_scope = "quotes"
+    public_write_allowed = True  # Public POST crea token compartido
 
     def post(self, request):
         serializer = QuoteShareCreateSerializer(data=request.data)
@@ -75,7 +77,7 @@ class QuoteShareCreateView(SoftJWTAllowAnyMixin, APIView):
         return Response({"id": obj.token}, status=status.HTTP_201_CREATED)
 
 
-class QuoteShareDetailView(SoftJWTAllowAnyMixin, APIView):
+class QuoteShareDetailView(PublicEndpointMixin, APIView):
 
     def get(self, request, token):
         obj = get_object_or_404(QuoteShare, token=token)

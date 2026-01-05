@@ -28,8 +28,6 @@ from .models import Payment, Receipt, PaymentWebhookEvent
 from .serializers import PaymentSerializer
 from .utils import generate_receipt_pdf
 
-from common.authentication import SoftJWTAuthentication
-
 from datetime import date
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -66,29 +64,24 @@ def _authorize_mp_webhook(request):
 
     if not secret:
         if require_secret:
-            if allow_no_secret:
-                logger.warning(
-                    "MP_WEBHOOK_SECRET no configurado. Aceptando webhook sin firma porque MP_ALLOW_WEBHOOK_NO_SECRET está activo."
-                )
-                return allow("MP_WEBHOOK_SECRET ausente; se aceptó sin validar firma.")
             return reject(
                 "MP_WEBHOOK_SECRET requerido (definí la variable o habilitá MP_ALLOW_WEBHOOK_NO_SECRET explícitamente).",
                 503,
             )
-
-        if settings.DEBUG:
-            return allow("MP_WEBHOOK_SECRET ausente; permitido por DEBUG.")
-
-        if allow_no_secret:
-            logger.warning(
-                "MP_WEBHOOK_SECRET no configurado. Aceptando webhook sin firma porque MP_ALLOW_WEBHOOK_NO_SECRET está activo."
+        if not settings.DEBUG:
+            return reject(
+                "MP_WEBHOOK_SECRET requerido (definí la variable o habilitá MP_ALLOW_WEBHOOK_NO_SECRET explícitamente).",
+                503,
             )
-            return allow("MP_WEBHOOK_SECRET ausente; se aceptó sin validar firma.")
-
-        return reject(
-            "MP_WEBHOOK_SECRET requerido (definí la variable o habilitá MP_ALLOW_WEBHOOK_NO_SECRET explícitamente).",
-            503,
+        if not allow_no_secret:
+            return reject(
+                "MP_WEBHOOK_SECRET requerido (definí la variable o habilitá MP_ALLOW_WEBHOOK_NO_SECRET explícitamente).",
+                503,
+            )
+        logger.warning(
+            "MP_WEBHOOK_SECRET no configurado. Aceptando webhook sin firma porque MP_ALLOW_WEBHOOK_NO_SECRET está activo."
         )
+        return allow("MP_WEBHOOK_SECRET ausente; se aceptó sin validar firma.")
 
     bearer = (request.headers.get("Authorization") or "").replace("Bearer", "").strip()
     incoming = (request.headers.get("X-Mp-Signature") or bearer or "").strip()
@@ -760,7 +753,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         return Response({"installment": installment_payload})
 
 @api_view(['POST'])
-@authentication_classes([SoftJWTAuthentication])
+@authentication_classes([])
 @permission_classes([permissions.AllowAny])
 def mp_webhook(request):
     auth = _authorize_mp_webhook(request)

@@ -1,5 +1,6 @@
 from rest_framework.test import APIClient, APITestCase
 
+from common.authentication import PublicUserProxy, SoftJWTAuthentication
 from common.models import Announcement
 
 
@@ -67,3 +68,14 @@ class SoftJWTAuthenticationTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=self.invalid_token)
         res = self.client.get("/api/accounts/users/me")
         self.assertEqual(res.status_code, 401)
+
+    def test_soft_authentication_requires_known_scope(self):
+        with self.assertRaises(ValueError):
+            SoftJWTAuthentication(purpose="unexpected")
+
+    def test_public_user_proxy_blocks_user_access(self):
+        proxy = PublicUserProxy()
+        self.assertFalse(proxy)
+        self.assertFalse(proxy.is_authenticated)
+        with self.assertRaises(RuntimeError):
+            _ = proxy.pk

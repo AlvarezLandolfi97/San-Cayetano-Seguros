@@ -7,7 +7,7 @@
 - Mercado Pago: `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_REQUIRE_WEBHOOK_SECRET` (true en prod), `MP_NOTIFICATION_URL` opcional
 - Media/CDN: `MEDIA_URL` apuntando a CDN o `https://tu-dominio/media/`; `MEDIA_ROOT` si usás filesystem; `SERVE_MEDIA_FILES=false` en prod (default) o habilitarlo conscientemente
 - CORS/CSRF: `FRONTEND_ORIGINS` separados por coma; en prod no se habilita `CORS_ALLOW_ALL_ORIGINS`
-- Base de datos: en desarrollo podés usar SQLite local (`backend/db.sqlite3`), pero ese archivo no está versionado y se crea automáticamente. En producción es obligatorio configurar `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` y `DB_PORT` (o cualquier otro backend que uses) mediante variables de entorno.
+- Base de datos: en desarrollo podés usar SQLite local (`backend/db.sqlite3`), pero ese archivo no está versionado y se crea automáticamente. En producción es obligatorio configurar `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST` y `DB_PORT` (o cualquier otro backend que uses) mediante variables de entorno; el backend no arranca con SQLite cuando `DEBUG=False`.
 - Entorno base: copiá `backend/.env.example` hacia `backend/.env` antes de levantar el backend y completá cada valor sensible para el entorno correspondiente.
 - Otros: `API_PAGE_SIZE`, `API_MAX_PAGE_SIZE`, `LOG_LEVEL`
 

@@ -33,7 +33,10 @@ from rest_framework.permissions import IsAuthenticated
 from .serializers import UserSerializer
 from django.urls import reverse
 from django.utils.crypto import get_random_string
-from common.authentication import SoftJWTAuthentication
+from common.security import PublicEndpointMixin
+
+logger = logging.getLogger(__name__)
+
 GOOGLE_AUTH_AVAILABLE = False
 google_auth_exceptions = None
 google_auth_requests = None
@@ -44,10 +47,10 @@ try:
     from google.oauth2 import id_token as google_id_token
     GOOGLE_AUTH_AVAILABLE = True
 except ImportError:
-    pass
+    logger.debug("google-auth extras no disponibles; deshabilitando Google Login.")
+    GOOGLE_AUTH_AVAILABLE = False
 
 User = get_user_model()
-logger = logging.getLogger(__name__)
 
 def _bool(value, default=False):
     if value is None:
@@ -276,14 +279,15 @@ def _increment_rate_counter(rate_key, cooldown):
         return next_value
 
 
-class EmailLoginView(APIView):
+class EmailLoginView(PublicEndpointMixin, APIView):
     """
     Endpoint de login compatible con el frontend mock (/auth/login).
     Permite iniciar sesión por email (o DNI como fallback) y devuelve access/refresh + datos de usuario.
     """
     permission_classes = [AllowAny]
-    authentication_classes = [SoftJWTAuthentication]
     throttle_scope = "login"
+    # Este POST expone un write público controlado (solo devuelve tokens).
+    public_write_allowed = True
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
@@ -399,15 +403,15 @@ class EmailLoginView(APIView):
         return Response(data)
 
 
-class PasswordResetRequestView(views.APIView):
+class PasswordResetRequestView(PublicEndpointMixin, views.APIView):
     """
     Recibe un email y genera un token de reseteo si el usuario existe.
     Devuelve 200 siempre para evitar enumeración de usuarios.
     """
 
     permission_classes = [AllowAny]
-    authentication_classes = [SoftJWTAuthentication]
     throttle_scope = "reset"
+    public_write_allowed = True  # POST intencional para solicitar reset
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
@@ -450,14 +454,14 @@ class PasswordResetRequestView(views.APIView):
         return response.Response({"detail": "Te enviamos un correo con instrucciones."}, status=status.HTTP_200_OK)
 
 
-class PasswordResetConfirmView(views.APIView):
+class PasswordResetConfirmView(PublicEndpointMixin, views.APIView):
     """
     Confirma el reseteo de contraseña usando uid y token.
     """
 
     permission_classes = [AllowAny]
-    authentication_classes = [SoftJWTAuthentication]
     throttle_scope = "reset"
+    public_write_allowed = True  # POST obligatorio para confirmar el nuevo password
 
     def post(self, request):
         uidb64 = request.data.get("uid")
@@ -481,15 +485,15 @@ class PasswordResetConfirmView(views.APIView):
         return response.Response({"detail": "Contraseña actualizada."}, status=status.HTTP_200_OK)
 
 
-class RegisterView(APIView):
+class RegisterView(PublicEndpointMixin, APIView):
     """
     Registro público de usuarios.
     Devuelve access/refresh + datos del usuario.
     """
 
     permission_classes = [AllowAny]
-    authentication_classes = [SoftJWTAuthentication]
     throttle_scope = "register"
+    public_write_allowed = True  # POST público con validaciones explícitas
 
     def post(self, request):
         data = request.data or {}
@@ -547,7 +551,6 @@ class LogoutView(APIView):
     Requiere el token para poder marcarlo en la blacklist.
     """
     permission_classes = [IsAuthenticated]
-    authentication_classes = [SoftJWTAuthentication]
 
     def post(self, request):
         refresh_token = (
@@ -574,14 +577,14 @@ class LogoutView(APIView):
         )
 
 
-class GoogleLoginView(APIView):
+class GoogleLoginView(PublicEndpointMixin, APIView):
     """
     Endpoint que valida un id_token de Google, sincroniza o crea el usuario y retorna los tokens JWT.
     Solo está disponible si ENABLE_GOOGLE_LOGIN está habilitado.
     """
     permission_classes = [AllowAny]
-    authentication_classes = [SoftJWTAuthentication]
 
+    public_write_allowed = True  # POST autorizado por estar detrás de google login
     def post(self, request):
         if not _bool(os.getenv("ENABLE_GOOGLE_LOGIN")):
             # Feature flag apaga el endpoint por completo para evitar surface attack.
@@ -607,11 +610,8 @@ class GoogleLoginView(APIView):
         if not GOOGLE_AUTH_AVAILABLE:
             logger.warning("Google login habilitado pero google-auth no está instalado.")
             return Response(
-                {
-                    "detail": "Google login habilitado pero faltan dependencias (google-auth/requests). "
-                    "Instalá `pip install -r requirements.txt` para continuar."
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {"detail": "Google auth dependencies not installed"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         try:
@@ -687,9 +687,8 @@ class GoogleLoginView(APIView):
         )
 
 
-class GoogleLoginStatusView(APIView):
+class GoogleLoginStatusView(PublicEndpointMixin, APIView):
     permission_classes = [AllowAny]
-    authentication_classes = [SoftJWTAuthentication]
 
     def get(self, request):
         if not _bool(os.getenv("ENABLE_GOOGLE_LOGIN")):

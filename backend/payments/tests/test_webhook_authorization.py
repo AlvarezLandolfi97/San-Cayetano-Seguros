@@ -30,7 +30,11 @@ class MpWebhookAuthorizationTests(APITestCase):
         DEBUG=True,
         REST_FRAMEWORK={"DEFAULT_AUTHENTICATION_CLASSES": [], "DEFAULT_PERMISSION_CLASSES": []},
     )
-    @mock.patch.dict(os.environ, {"MP_WEBHOOK_SECRET": ""}, clear=False)
+    @mock.patch.dict(
+        os.environ,
+        {"MP_WEBHOOK_SECRET": "", "MP_ALLOW_WEBHOOK_NO_SECRET": "true"},
+        clear=False,
+    )
     def test_debug_allows_missing_secret(self):
         request = self.factory.post("/api/payments/webhook", {})
         ok, detail, status_code = _authorize_mp_webhook(request)
@@ -73,9 +77,9 @@ class MpWebhookAuthorizationTests(APITestCase):
         {"MP_WEBHOOK_SECRET": "", "MP_ALLOW_WEBHOOK_NO_SECRET": "true"},
         clear=False,
     )
-    def test_allow_no_secret_when_flag_set(self):
+    def test_production_disallows_allow_no_secret_flag(self):
         request = self.factory.post("/api/payments/webhook", {})
         ok, detail, status_code = _authorize_mp_webhook(request)
-        self.assertTrue(ok)
-        self.assertEqual(status_code, 200)
-        self.assertIn("ausente", detail)
+        self.assertFalse(ok)
+        self.assertEqual(status_code, 503)
+        self.assertIn("MP_WEBHOOK_SECRET requerido", detail)

@@ -3,7 +3,6 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from common.authentication import SoftJWTAuthentication
 
 LEGACY_DEPRECATION_MESSAGE = {
     "detail": "Endpoint deprecated. Use /api/common/announcements/."
@@ -11,7 +10,7 @@ LEGACY_DEPRECATION_MESSAGE = {
 
 
 @api_view(["GET", "POST", "PUT", "PATCH", "DELETE"])
-@authentication_classes([SoftJWTAuthentication])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def legacy_announcements_list(request: Request):
     if request.method == "GET":
@@ -20,7 +19,7 @@ def legacy_announcements_list(request: Request):
 
 
 @api_view(["GET", "POST", "PUT", "PATCH", "DELETE"])
-@authentication_classes([SoftJWTAuthentication])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def legacy_announcements_detail(request: Request, pk: int):
     if request.method == "GET":

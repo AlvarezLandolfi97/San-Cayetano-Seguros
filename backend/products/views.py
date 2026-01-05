@@ -1,7 +1,8 @@
 # backend/products/views.py
 from rest_framework import viewsets, permissions, status, response
 from rest_framework.generics import ListAPIView
-from common.authentication import SoftJWTAllowAnyMixin, SoftJWTAuthentication
+from common.authentication import OptionalAuthenticationMixin
+from common.security import PublicEndpointMixin
 from .models import Product
 from .serializers import ProductSerializer, HomeProductSerializer, AdminProductSerializer
 from policies.models import Policy
@@ -9,7 +10,7 @@ from django.db.models import Count
 
 
 # 🔹 ViewSet general (ya existente)
-class ProductViewSet(viewsets.ReadOnlyModelViewSet):
+class ProductViewSet(OptionalAuthenticationMixin, viewsets.ReadOnlyModelViewSet):
     """
     GET /api/products/
     Devuelve productos activos para consumo público.
@@ -31,14 +32,12 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
             return [permissions.AllowAny()]
         return [permissions.IsAdminUser()]
 
-    def get_authenticators(self):
-        if self._resolve_action() in self.PUBLIC_ACTIONS:
-            return [SoftJWTAuthentication()]
-        return super().get_authenticators()
+    def should_use_optional_authentication(self):
+        return self._resolve_action() in self.PUBLIC_ACTIONS
 
 
 # 🔹 Vista optimizada para el Home
-class HomeProductsListView(SoftJWTAllowAnyMixin, ListAPIView):
+class HomeProductsListView(PublicEndpointMixin, ListAPIView):
     """
     GET /api/products/home
     Devuelve una versión liviana para el carrusel del Home.

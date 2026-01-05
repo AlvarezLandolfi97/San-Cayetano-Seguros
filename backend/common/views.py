@@ -6,20 +6,18 @@ from rest_framework import permissions, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from common.authentication import SoftJWTAllowAnyMixin, SoftJWTAuthentication
+from common.authentication import OptionalAuthenticationMixin, SoftJWTAuthentication
 from policies.billing import ADMIN_MANAGED_STATUSES, _add_months, regenerate_installments
 from policies.models import Policy
 from .models import ContactInfo, AppSettings, Announcement
 from .serializers import ContactInfoSerializer, AppSettingsSerializer, AnnouncementSerializer
 
 
-class ContactInfoView(SoftJWTAllowAnyMixin, APIView):
+class ContactInfoView(OptionalAuthenticationMixin, APIView):
+    """PUBLIC ENDPOINT: acepta SoftJWT opcional y no depende de request.user."""
 
-    def get_permissions(self):
-        # Lectura pública, escritura solo admins
-        if self.request.method.lower() in ("patch", "put", "post", "delete"):
-            return [permissions.IsAdminUser()]
-        return super().get_permissions()
+    permission_classes = [permissions.AllowAny]
+    optional_soft_purpose = SoftJWTAuthentication.PURPOSE_PUBLIC
 
     def get(self, request):
         obj = ContactInfo.get_solo()
@@ -83,7 +81,7 @@ class AppSettingsView(APIView):
             duration,
         )
 
-class AnnouncementViewSet(viewsets.ModelViewSet):
+class AnnouncementViewSet(OptionalAuthenticationMixin, viewsets.ModelViewSet):
     """
     CRUD admin + listado público de anuncios.
     """
@@ -116,17 +114,14 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
 
         return None
 
-    def get_authenticators(self):
-        action = self._resolve_action()
-        if action in self.PUBLIC_ACTIONS:
-            return [SoftJWTAuthentication()]
-        return super().get_authenticators()
-
     def get_permissions(self):
         action = self._resolve_action()
         if action in self.PUBLIC_ACTIONS:
             return [permissions.AllowAny()]
         return super().get_permissions()
+
+    def should_use_optional_authentication(self):
+        return self._resolve_action() in self.PUBLIC_ACTIONS
 
     def get_queryset(self):
         qs = super().get_queryset()

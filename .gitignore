@@ -1,25 +1,39 @@
 # Ignorar dependencias de Node
 /frontend/node_modules/
 
-# Entornos virtuales
+# Entornos virtuales (global y backend)
 .venv/
 venv/
+backend/.venv/
 backend/venv/
 
 # Archivos de Python/Django
 __pycache__/
 *.py[cod]
+*.pyo
 *.sqlite3
 *.log
 *.pyc
+*.pyd
+
+# Caches de herramientas y pruebas
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Archivos de entorno
 .env
 .env.*
+backend/.env
+!backend/.env.example
 
 # Archivos estáticos y de medios
 staticfiles/
 media/
+backend/media/
+
+# Persistencia local
+backend/db.sqlite3
 
 # Node y frontend (si aplica)
 node_modules/

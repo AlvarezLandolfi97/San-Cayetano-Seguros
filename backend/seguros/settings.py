@@ -191,10 +191,14 @@ WSGI_APPLICATION = "seguros.wsgi.application"
 
 
 # === DATABASE ===
-if os.getenv("DB_ENGINE"):
+DB_ENGINE = (os.getenv("DB_ENGINE") or "").strip()
+if not DB_ENGINE and not DEBUG:
+    raise ImproperlyConfigured("DB_ENGINE is required when DEBUG=False.")
+
+if DB_ENGINE:
     DATABASES = {
         "default": {
-            "ENGINE": os.getenv("DB_ENGINE"),
+            "ENGINE": DB_ENGINE,
             "NAME": os.getenv("DB_NAME"),
             "USER": os.getenv("DB_USER"),
             "PASSWORD": os.getenv("DB_PASSWORD"),
@@ -231,7 +235,7 @@ AUTH_USER_MODEL = "accounts.User"
 # === DRF / JWT ===
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "common.authentication.StrictJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated"

@@ -1,12 +1,10 @@
 # backend/accounts/views.py
 from rest_framework import viewsets, permissions, decorators, response, status
-from common.authentication import SoftJWTAuthentication
 from .models import User
 from .serializers import UserSerializer
 
 
 @decorators.api_view(["GET"])
-@decorators.authentication_classes([SoftJWTAuthentication])
 @decorators.permission_classes([permissions.AllowAny])
 def deprecated_lookup(request):
     return response.Response(

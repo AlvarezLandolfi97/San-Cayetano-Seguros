@@ -84,6 +84,22 @@ class AuthTests(APITestCase):
         self.assertEqual(res.status_code, 404)
         self.assertIn("detail", res.data)
 
+    def test_google_import_placeholders_present(self):
+        # Asegura que, incluso si google-auth no está instalado, las variables existen.
+        self.assertTrue(hasattr(auth_views, "GOOGLE_AUTH_AVAILABLE"))
+        self.assertTrue(hasattr(auth_views, "google_id_token"))
+        self.assertTrue(hasattr(auth_views, "google_auth_requests"))
+        self.assertTrue(hasattr(auth_views, "google_auth_exceptions"))
+
+    def test_google_login_dependencies_missing(self):
+        url = reverse("auth-google")
+        env = {"ENABLE_GOOGLE_LOGIN": "true", "GOOGLE_CLIENT_ID": "test-client"}
+        with patch.dict(os.environ, env):
+            with patch.object(auth_views, "GOOGLE_AUTH_AVAILABLE", False):
+                res = self.client.post(url, {"id_token": "stub"})
+        self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(res.data.get("detail"), "Google auth dependencies not installed")
+
     @unittest.skipUnless(GOOGLE_AUTH_AVAILABLE, "requires google-auth")
     def test_google_login_rejects_invalid_token(self):
         url = reverse("auth-google")
