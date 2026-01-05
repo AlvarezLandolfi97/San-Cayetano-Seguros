@@ -67,7 +67,7 @@ export default function AdminHome() {
     setErr("");
     setLoading(true);
     try {
-      const { data } = await api.get("/admin/settings");
+      const { data } = await api.get("/common/admin/settings/");
       const payWindowValue = Number(data?.payment_window_days);
       const displayValue = Number(data?.payment_due_day_display);
       const thresholdValue = Number(data?.expiring_threshold_days);
@@ -144,7 +144,7 @@ export default function AdminHome() {
     setSavingThreshold(true);
     setErr("");
     try {
-      await api.patch("/admin/settings", {
+      await api.patch("/common/admin/settings/", {
         payment_window_days: paymentWindow,
         payment_due_day_display: dueDayDisplay,
         expiring_threshold_days: expiringThresholdDays,

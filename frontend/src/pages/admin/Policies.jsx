@@ -342,7 +342,7 @@ export default function Policies() {
 
   async function fetchSettings() {
     try {
-      const { data } = await api.get("/admin/settings");
+      const { data } = await api.get("/common/admin/settings/");
 
       // soporta: {..}, {settings:{..}}, {results:[{..}]}
       const s =
