@@ -181,6 +181,21 @@ function normalizeApiPath(path) {
   return normalized;
 }
 
+const STATIC_FILE_EXT = /\.(?:png|jpe?g|gif|webp|svg|css|js|json|txt|xml|map|ico|woff2?|ttf)$/i;
+
+function ensureTrailingSlashForUrl(url) {
+  if (!url) return url;
+  if (ABSOLUTE_URL.test(url)) return url;
+  const queryIndex = url.indexOf("?");
+  const base = queryIndex === -1 ? url : url.slice(0, queryIndex);
+  const query = queryIndex === -1 ? "" : url.slice(queryIndex);
+  if (!base.startsWith("/")) return url;
+  if (base.endsWith("/")) return url;
+  const lastSegment = base.split("/").pop() || "";
+  if (STATIC_FILE_EXT.test(lastSegment)) return url;
+  return `${base}/${query}`;
+}
+
 /**
  * Detecta si el request original apunta a un endpoint público tal como lo define
  * `PublicEndpointMixin` / `OptionalAuthenticationMixin` en backend/common/endpoint_security.md.
@@ -203,6 +218,10 @@ api.interceptors.request.use((config) => {
   const normalizedUrl = normalizeApiPath(config.url || "");
   if (normalizedUrl !== config.url) {
     config.url = normalizedUrl;
+  }
+  const withSlash = ensureTrailingSlashForUrl(config.url || "");
+  if (withSlash && withSlash !== config.url) {
+    config.url = withSlash;
   }
   // Token
   const token = requiresAuthentication(config) || config.sendAuthIfPresent ? getStoredAuth().access : null;

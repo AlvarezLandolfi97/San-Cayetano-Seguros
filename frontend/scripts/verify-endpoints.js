@@ -106,6 +106,7 @@ function extractEndpoints() {
         file,
         method,
         line: getLineNumber(content, match.index),
+        raw,
       });
     }
     while ((match = TEMPLATE_RE.exec(content)) !== null) {
